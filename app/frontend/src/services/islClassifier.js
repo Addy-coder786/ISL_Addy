@@ -9,6 +9,17 @@
 import { ISL_VOCABULARY_LEXICON } from './islDictionary'
 
 /**
+ * Signs that have a hand-shape prototype in evaluateSignAttempt.
+ * Every other lexicon sign has no live scoring yet and must not receive a score.
+ */
+export const COACHABLE_SIGN_IDS = ['HELLO', 'WATER', 'NAMASTE', 'THANK_YOU', 'YES', 'NO', 'PEACE', 'HELP']
+
+export function isCoachableSign(signId) {
+  if (!signId) return false
+  return COACHABLE_SIGN_IDS.includes(signId.toUpperCase().replace(' ', '_'))
+}
+
+/**
  * Calculates Euclidean distance between two 3D landmarks
  */
 function dist3D(p1, p2) {
@@ -111,6 +122,26 @@ export function evaluateSignAttempt(targetSignId, primaryLandmarks, allHands = [
   const metrics = extractHandMetrics(primaryLandmarks)
   const signId = targetSignId ? targetSignId.toUpperCase() : 'HELLO'
   const lexiconItem = ISL_VOCABULARY_LEXICON.find(item => item.id === signId) || ISL_VOCABULARY_LEXICON[0]
+
+  if (!isCoachableSign(signId)) {
+    return {
+      handDetected: true,
+      supported: false,
+      overallSimilarity: 0,
+      fingerConfigScore: 0,
+      positionScore: 0,
+      orientationScore: 0,
+      status: 'NOT_SUPPORTED',
+      feedbackMessage: `Live scoring for ${lexiconItem.label} is not available yet. Follow the 3D avatar demonstration to practise this sign.`,
+      targetSign: lexiconItem,
+      detailedChecks: {
+        detection: { pass: true, label: 'Hand in Camera Frame' },
+        fingerShape: { pass: false, score: 0, label: 'Finger Flexion & Spread' },
+        spatialPosition: { pass: false, score: 0, label: 'Hand Height & Centering' },
+        palmOrientation: { pass: false, score: 0, label: 'Palm Facing Direction' }
+      }
+    }
+  }
 
   let fingerConfigScore = 0
   let positionScore = 0
@@ -229,9 +260,10 @@ export function evaluateSignAttempt(targetSignId, primaryLandmarks, allHands = [
     }
 
     default: {
-      fingerConfigScore = 75
-      positionScore = 80
-      orientationScore = 80
+      // Unreachable for non-coachable signs (handled above); never invent a score.
+      fingerConfigScore = 0
+      positionScore = 0
+      orientationScore = 0
     }
   }
 
@@ -261,6 +293,7 @@ export function evaluateSignAttempt(targetSignId, primaryLandmarks, allHands = [
 
   return {
     handDetected: true,
+    supported: true,
     overallSimilarity,
     fingerConfigScore,
     positionScore,
@@ -290,6 +323,7 @@ export function classifyISLSign(primaryLandmarks, allHands = []) {
   let bestItem = null
 
   for (const item of ISL_VOCABULARY_LEXICON) {
+    if (!isCoachableSign(item.id)) continue
     const result = evaluateSignAttempt(item.id, primaryLandmarks, allHands)
     if (result.overallSimilarity > bestScore) {
       bestScore = result.overallSimilarity

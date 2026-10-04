@@ -26,7 +26,7 @@ This folder contains a cleaned, zip-ready version of the unified MUDRA project a
 1. Open this folder in Windows Explorer.
 2. Run `start_all.bat`.
 3. The backend should start on `http://localhost:8000`.
-4. The frontend should start on `http://localhost:5173`.
+4. The frontend should start on `http://localhost:3000`.
 
 ## Included markdown files
 

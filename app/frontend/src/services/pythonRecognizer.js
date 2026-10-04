@@ -1,5 +1,8 @@
-const DEFAULT_ENDPOINT = 'http://127.0.0.1:8765/predict'
-const WINDOW_FRAMES = 1
+// Served by app/backend (FastAPI). Enable with VITE_PYTHON_RECOGNIZER=true once /predict exists.
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const DEFAULT_ENDPOINT = `${API_BASE_URL}/predict`
+// Sequence models need a temporal window, not a single frame (matches training T=24).
+const WINDOW_FRAMES = 24
 
 class PythonRecognizer {
   constructor() {

@@ -16,7 +16,8 @@ import {
   ExternalLink
 } from 'lucide-react'
 import handTracker from '../services/handTracker'
-import { evaluateSignAttempt } from '../services/islClassifier'
+import { evaluateSignAttempt, isCoachableSign } from '../services/islClassifier'
+import { createSessionRecorder } from '../services/progressStore'
 import { ISL_VOCABULARY_LEXICON, ISLRTC_DICTIONARY_URL } from '../services/islDictionary'
 import MudraAvatarViewer from '../components/avatar/MudraAvatarViewer'
 
@@ -48,6 +49,9 @@ export default function PracticePage({ targetSignId = 'HELLO', onNavigate }) {
 
   // Recent scores history for real progression tracking
   const [recentScores, setRecentScores] = useState([])
+  const sessionRecorderRef = useRef(null)
+  if (!sessionRecorderRef.current) sessionRecorderRef.current = createSessionRecorder()
+  const coachableSigns = ISL_VOCABULARY_LEXICON.filter((s) => isCoachableSign(s.id))
 
   const activeSign = ISL_VOCABULARY_LEXICON.find((s) => s.id === activeSignId) || ISL_VOCABULARY_LEXICON[0]
 
@@ -78,6 +82,9 @@ export default function PracticePage({ targetSignId = 'HELLO', onNavigate }) {
       // Run genuine mathematical biometric evaluation
       const evalResult = evaluateSignAttempt(activeSignId, primaryHand, results.multiHandLandmarks)
       setEvaluation(evalResult)
+      if (evalResult.supported) {
+        sessionRecorderRef.current.add(activeSignId, evalResult.overallSimilarity)
+      }
 
       if (evalResult.overallSimilarity > 50) {
         setRecentScores((prev) => {
@@ -128,6 +135,7 @@ export default function PracticePage({ targetSignId = 'HELLO', onNavigate }) {
   // Stop Camera
   const handleStopCamera = () => {
     handTracker.stopCamera()
+    sessionRecorderRef.current.flush()
     setCameraActive(false)
     if (canvasRef.current) {
       const ctx = canvasRef.current.getContext('2d')
@@ -153,6 +161,7 @@ export default function PracticePage({ targetSignId = 'HELLO', onNavigate }) {
   useEffect(() => {
     return () => {
       handTracker.stopCamera()
+      sessionRecorderRef.current.flush()
     }
   }, [])
 
@@ -307,7 +316,7 @@ export default function PracticePage({ targetSignId = 'HELLO', onNavigate }) {
 
         {/* Target Sign Selector */}
         <div className="flex items-center gap-1.5 bg-white/80 p-1.5 rounded-2xl border border-mudra-lavender-200 shadow-xs flex-wrap">
-          {ISL_VOCABULARY_LEXICON.slice(0, 7).map((s) => (
+          {coachableSigns.map((s) => (
             <button
               key={s.id}
               type="button"
@@ -386,7 +395,7 @@ export default function PracticePage({ targetSignId = 'HELLO', onNavigate }) {
               
               {/* Real Gesture Similarity Badge */}
               <span className={`text-xs font-mono font-bold px-3 py-1 rounded-full ${
-                !evaluation.handDetected
+                !evaluation.handDetected || evaluation.supported === false
                   ? 'bg-gray-100 text-gray-600'
                   : evaluation.overallSimilarity >= 80
                   ? 'bg-emerald-100 text-emerald-800'
@@ -394,7 +403,11 @@ export default function PracticePage({ targetSignId = 'HELLO', onNavigate }) {
                   ? 'bg-amber-100 text-amber-800'
                   : 'bg-rose-100 text-rose-800'
               }`}>
-                {!evaluation.handDetected ? 'No Hand Detected' : `Gesture similarity: ${evaluation.overallSimilarity}%`}
+                {!evaluation.handDetected
+                  ? 'No Hand Detected'
+                  : evaluation.supported === false
+                  ? 'Live scoring not available'
+                  : `Gesture similarity: ${evaluation.overallSimilarity}%`}
               </span>
             </div>
 

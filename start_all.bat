@@ -86,6 +86,6 @@ start "MUDRA Frontend" cmd /k "cd /d ""%FRONTEND_DIR%"" && npm run dev -- --host
 echo.
 echo MUDRA project started.
 echo Backend: http://localhost:8000
-echo Frontend: http://localhost:5173
+echo Frontend: http://localhost:3000
 echo.
 pause

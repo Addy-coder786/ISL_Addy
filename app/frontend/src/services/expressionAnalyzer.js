@@ -1,53 +1,61 @@
+/**
+ * Observable non-manual (facial) cue descriptions.
+ *
+ * In ISL, facial movements are often grammatical (questions, negation, intensity),
+ * so these labels describe what the face is doing — they are NOT emotion readings.
+ * Internal keys are kept stable for the smoothing logic in CommunicatePage.
+ * Scores are uncalibrated heuristics (experimental), not confidence.
+ */
 const TONES = {
   friendly: {
-    label: 'Friendly & Warm',
-    emoji: '😊',
-    reason: 'Strong smile cues with relaxed facial posture'
+    label: 'Smiling',
+    emoji: '🙂',
+    reason: 'Mouth-corner raise detected with relaxed brows'
   },
   excited: {
-    label: 'Happy / Excited',
-    emoji: '😄',
-    reason: 'Smile, eye openness, and jaw openness suggest energetic cues'
+    label: 'Smile with open mouth',
+    emoji: '😃',
+    reason: 'Smile, wide eyes and jaw opening detected'
   },
   calm: {
-    label: 'Calm',
+    label: 'Relaxed face',
     emoji: '😌',
-    reason: 'Low facial activity suggests relaxed cues'
+    reason: 'Low facial movement'
   },
   respectful: {
-    label: 'Respectful',
-    emoji: '🙏',
-    reason: 'Measured facial posture with low tension cues'
+    label: 'Relaxed face',
+    emoji: '🙂',
+    reason: 'Low facial tension'
   },
   affectionate: {
-    label: 'Affectionate',
-    emoji: '❤️',
-    reason: 'Gentle smile cues with relaxed facial posture'
+    label: 'Gentle smile',
+    emoji: '🙂',
+    reason: 'Light mouth-corner raise with relaxed face'
   },
   sad: {
-    label: 'Sad',
-    emoji: '😔',
-    reason: 'Frown and inner-brow cues suggest a subdued expression'
+    label: 'Mouth corners down',
+    emoji: '🙁',
+    reason: 'Lowered mouth corners and brow movement detected'
   },
   concerned: {
-    label: 'Concerned',
-    emoji: '😟',
-    reason: 'Brow and mouth-tension cues suggest concern'
+    label: 'Raised brows, pressed lips',
+    emoji: '😯',
+    reason: 'Brow raise with lip pressing detected'
   },
   frustrated: {
-    label: 'Angry',
-    emoji: '😠',
-    reason: 'Calibrated brow, eye, and mouth-tension cues suggest an angry expression'
+    label: 'Brows drawn, lips pressed',
+    emoji: '😑',
+    reason: 'Brow and mouth-tension movement detected'
   },
   surprised: {
-    label: 'Surprised',
-    emoji: '😲',
-    reason: 'Raised brows, wide eyes, and jaw openness suggest surprise cues'
+    label: 'Raised brows, wide eyes',
+    emoji: '😮',
+    reason: 'Brow raise, wide eyes and jaw opening detected'
   },
   neutral: {
-    label: 'Neutral',
+    label: 'No strong facial cue',
     emoji: '😐',
-    reason: 'No strong facial-expression pattern was detected'
+    reason: 'No strong facial movement pattern detected'
   }
 }
 
@@ -67,7 +75,7 @@ function toScoreMap(categories = []) {
 }
 
 /**
- * Converts actual MediaPipe blendshape categories into a transparent tone estimate.
+ * Converts MediaPipe blendshape categories into a transparent description of facial cues (not emotions).
  * This service is independent of React, ISL tokens, sentence generation, and speech.
  */
 export function analyzeExpression(categories = []) {
@@ -78,7 +86,7 @@ export function analyzeExpression(categories = []) {
       ...TONES.neutral,
       confidence: 0,
       available: false,
-      reason: 'Insufficient expressive cues'
+      reason: 'Insufficient facial cues'
     }
   }
 
@@ -173,7 +181,7 @@ export const INITIAL_EXPRESSION = {
   ...TONES.neutral,
   confidence: 0,
   available: false,
-  reason: 'Start the camera to analyze expression'
+  reason: 'Start the camera to observe facial cues'
 }
 
 export const FACE_UNAVAILABLE_EXPRESSION = {

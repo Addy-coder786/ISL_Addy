@@ -685,7 +685,7 @@ export default function CommunicatePage() {
                 </div>
               </div>
 
-              {/* Facial expression interpretation layer */}
+              {/* Non-manual (facial) cue layer — experimental, describes movement, not emotion */}
               <div className="space-y-3 pt-2 border-t border-mudra-lavender-200/60">
                 <div className="flex items-start gap-3">
                   <span
@@ -698,11 +698,11 @@ export default function CommunicatePage() {
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-mudra-lavender-700 font-display">
-                        EXPRESSIVE TONE
+                        FACIAL CUES (EXPERIMENTAL)
                       </span>
                       {faceStatus === 'detected' && expression.available && (
                         <span className="text-[10px] font-mono font-bold text-mudra-indigo-600">
-                          {Math.round(expression.confidence * 100)}% tone confidence
+                          cue score {Math.round(expression.confidence * 100)} (uncalibrated)
                         </span>
                       )}
                     </div>
@@ -710,26 +710,26 @@ export default function CommunicatePage() {
                       {faceStatus === 'not-detected'
                         ? 'Face not detected'
                         : faceStatus === 'error'
-                        ? 'Expressive tone unavailable'
+                        ? 'Facial cues unavailable'
                         : faceStatus === 'insufficient'
-                        ? 'Neutral'
+                        ? 'No strong facial cue'
                         : expression.label}
                     </div>
                     <p className="text-xs leading-relaxed text-mudra-indigo-600">
                       {faceStatus === 'initializing'
                         ? 'Loading facial analysis...'
                         : !cameraActive
-                        ? 'Start the camera to analyze expression.'
+                        ? 'Start the camera to observe facial cues.'
                         : faceStatus === 'not-detected'
                         ? 'Face not detected.'
                         : faceStatus === 'error'
                         ? expression.reason
                         : faceStatus === 'insufficient'
-                        ? 'Insufficient expressive cues.'
-                        : 'Estimated from facial and visual cues.'}
+                        ? 'Insufficient facial cues.'
+                        : 'Describes facial movement only. It is not a reading of emotion.'}
                     </p>
                     <p className="text-[10px] font-medium text-mudra-indigo-500">
-                      Facial expression analysis runs locally on your device.
+                      Facial analysis runs locally on your device. No images are stored or uploaded.
                     </p>
                   </div>
                 </div>
