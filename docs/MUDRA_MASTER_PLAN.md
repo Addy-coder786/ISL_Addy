@@ -235,3 +235,7 @@ Findings: augmentation helps (+1.4 pts on INCLUDE); velocity features are not ne
 (BiLSTM / Transformer) are within ~0.5 pt of each other, which is inside single-seed noise.
 INCLUDE-50 validation is too small to calibrate confidence; full-INCLUDE calibration is usable (ECE 0.01-0.02).
 Tables: `experiments/ablations/include*_summary.md`. CNN ablations (A, D, E) still need RGB video.
+
+Seed check (3 seeds each, full INCLUDE test): BiLSTM without velocity 96.73% ± 0.57 (macro-F1 0.967 ± 0.007, ECE 0.013);
+Transformer 96.45% ± 0.75 (macro-F1 0.966 ± 0.007, ECE 0.018). The difference is inside run-to-run spread: a statistical tie.
+Phase 3 candidate: BiLSTM without velocity (best mean, best calibration); MLP+pool (150k params, 96.5%) as the in-browser/ONNX option.
