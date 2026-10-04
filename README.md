@@ -16,10 +16,9 @@ This folder contains a cleaned, zip-ready version of the unified MUDRA project a
 - `app/frontend` — React + Vite MUDRA front-end
 - `app/backend` — Python API and inference layer
 - `app/shared` — shared config and common values
-- `data/raw_videos` — source training videos
-- `data/extracted_landmarks` — processed landmark sequences
-- `training` — training scripts and model work
-- `docs` — architecture and project notes
+- `data` — raw recordings, public datasets, extracted landmarks and splits (see `data/README.md`)
+- `training` — `mudra_ml` package: landmark extraction, normalisation, splits, (Phase 2) models (see `training/README.md`)
+- `docs` — architecture notes and `MUDRA_MASTER_PLAN.md` (analysis, datasets, roadmap)
 
 ## Quick start
 
@@ -39,4 +38,4 @@ This folder contains a cleaned, zip-ready version of the unified MUDRA project a
 
 - This package was prepared for easy zipping and sending to another AI assistant or collaborator.
 - Generated folders like `node_modules` and build outputs were removed to keep the zip smaller and cleaner.
-- Add your real training data into `data/raw_videos` when ready.
+- Add your training videos under `data/raw/<source>/videos/<LABEL>/` and follow `training/README.md`.

@@ -28,3 +28,4 @@ training/assets/mediapipe/*.task
 Thumbs.db
 .vscode/
 .idea/
+*.egg-info/

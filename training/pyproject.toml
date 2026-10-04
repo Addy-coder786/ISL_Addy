@@ -1,0 +1,20 @@
+[project]
+name = "mudra-ml"
+version = "0.1.0"
+description = "MUDRA ISL recognition: landmark extraction, datasets, models, training and evaluation"
+requires-python = ">=3.11"
+# Runtime dependencies are pinned in app/backend/requirements.txt (shared environment).
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"

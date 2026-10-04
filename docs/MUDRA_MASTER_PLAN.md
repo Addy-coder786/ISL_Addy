@@ -198,3 +198,23 @@ Mudra_Claude_Handoff/
 | Frontend | `npm install` OK, production build OK |
 | Frontend assets | `public/wasm`, `public/models/face_landmarker.task`, `public/assets/mudra-intro.mp4` merged from GitHub |
 | MediaPipe models (Python) | `training/assets/mediapipe/`: hand, pose (lite/full), face, holistic |
+
+---
+
+## 7. Progress log
+
+### 2026-10-04: Phase 0 done
+- Progress page now uses real on-device practice sessions (no fabricated numbers); Practice records sessions.
+- Classifier no longer gives signs without rules a default 77.5% score (that caused false GOODBYE detections in Communicate).
+- Facial "emotion" labels replaced by descriptions of facial movement (experimental, uncalibrated).
+- Python bridge pointed at FastAPI with a 24-frame window; port/README fixes; git initialised.
+
+### 2026-10-04: Phase 1 done (public data); waiting on the team's own data
+- `training/src/mudra_ml`: schema, frame sampler, MediaPipe Tasks extractor (hands + pose, anatomical hand slots),
+  normalisation (shape + body-relative location, 162-dim frames), manifests, grouped splits. 28 unit tests pass.
+- Scripts: `audit_dataset.py`, `extract_landmarks.py`, `make_splits.py`, `convert_include_pose.py`.
+- INCLUDE pose (CC-BY-4.0) downloaded and converted: 263 classes, 4,284 clips, split 2,908 / 523 / 816 (official test kept).
+  INCLUDE-50: 646 / 118 / 192.
+- Found and corrected a scaling quirk in the OpenHands INCLUDE release (x and y multipliers swapped); without the fix
+  bodies were stretched ~3x vertically and a model would not transfer to webcam input.
+- Next: run audit + extraction on the original 794 videos / 1,090 images once their location is known, then Phase 2.

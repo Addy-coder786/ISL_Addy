@@ -1,0 +1,25 @@
+# Data pipeline configuration (Phase 1). Paths are relative to the project root.
+
+paths:
+  raw_root: data/raw
+  processed_root: data/processed/landmarks
+  metadata_root: data/metadata
+  reports_root: experiments/reports
+
+extraction:
+  max_fps: 30            # decode at most this many frames per second
+  pose_model: pose_landmarker_full.task
+  min_hand_detection_confidence: 0.5
+  min_pose_detection_confidence: 0.5
+  mirrored_input: false  # true only for selfie-mirrored recordings
+  workers: 4             # parallel processes (MediaPipe runs on CPU)
+
+quality:
+  min_any_hand_rate: 0.5 # clips with hands in < 50% of frames are flagged for review
+
+sequence:
+  length: 24             # T frames fed to the temporal model (compare 16 / 24 / 32 later)
+
+splits:
+  ratios: [0.7, 0.15, 0.15]
+  seed: 42
