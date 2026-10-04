@@ -29,6 +29,31 @@ MediaPipe models live in `training/assets/mediapipe/` (not committed). Download 
 
 Combine sources by passing several manifests to `make_splits.py`.
 
+## Phase 2: models, training, evaluation
+
+| Task | Command |
+|---|---|
+| Train one model | `python training/scripts/train.py --config base.yaml --name include50_bilstm` |
+| Change settings | `... --set data.split_dir=data/metadata/splits/include model.temporal=transformer train.epochs=200` |
+| Ablation table | `python training/scripts/run_ablation.py --config ablation_landmarks.yaml --tag include50` |
+| Watch training | `tensorboard --logdir experiments/runs` |
+
+Models (`mudra_ml/models/sequence_model.py`): per-frame **Landmark MLP** -> temporal block
+(`none` = mean pooling, `bilstm`, `transformer`) -> attention pooling -> classifier. An optional
+appearance input (`appearance_dim`) takes per-frame **CNN** features (`cnn_encoder.py`, ResNet18 /
+MobileNetV3, freeze / unfreeze-last-block) for the hybrid models once RGB video is available.
+
+Each run writes `experiments/runs/<name>_<time>/`:
+`config.yaml`, `history.csv`, `tensorboard/`, `best.pt` (weights + classes + model/feature config +
+standardisation stats + temperature), `summary.json`, and `reports/` with metrics JSON,
+classification report, predictions CSV, confusion matrix (PNG + .npy), reliability diagram and
+confidence-threshold coverage table (input for the app's "Uncertain" threshold).
+
+Training: AdamW, warmup + cosine LR, label smoothing, fp16 mixed precision, gradient clipping,
+early stopping on validation macro-F1; temperature scaling fitted on validation, test evaluated once.
+Features are standardised per block (hand shape / location / pose / velocity), not per dimension,
+so near-constant jitter dimensions are not amplified.
+
 ## Design decisions
 
 - **Landmarks only are stored** (no frames, no face images). Raw coordinates are kept so
