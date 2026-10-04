@@ -1,0 +1,30 @@
+# Dependencies & build output
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.deps_ok
+
+# Secrets
+.env
+kaggle.json
+
+# Data, models & experiment output (large / regenerable)
+data/raw/
+data/raw_videos/
+data/external/
+data/processed/
+data/extracted_landmarks/
+checkpoints/
+experiments/
+runs/
+training/assets/mediapipe/*.task
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

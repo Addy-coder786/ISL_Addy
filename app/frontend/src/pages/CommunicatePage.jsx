@@ -1,0 +1,876 @@
+import React, { useState, useRef, useEffect, useCallback } from 'react'
+import { 
+  Camera, 
+  CameraOff, 
+  Play, 
+  Pause, 
+  RotateCcw, 
+  Volume2, 
+  Sparkles, 
+  CheckCircle2, 
+  Copy, 
+  Radio, 
+  Info,
+  Layers,
+  AlertCircle,
+  Mic,
+  MicOff,
+  Send,
+  ArrowRightLeft
+} from 'lucide-react'
+import handTracker from '../services/handTracker'
+import pythonRecognizer from '../services/pythonRecognizer'
+import faceExpressionTracker from '../services/faceExpressionTracker'
+import { classifyISLSign } from '../services/islClassifier'
+import { ISL_VOCABULARY_LEXICON, buildMultilingualSentence } from '../services/islDictionary'
+import { analyzeExpression, FACE_UNAVAILABLE_EXPRESSION, INITIAL_EXPRESSION } from '../services/expressionAnalyzer'
+import MudraAvatarViewer from '../components/avatar/MudraAvatarViewer'
+
+export default function CommunicatePage() {
+  // Mode toggle: 'sign-to-speech' (ISL -> Voice) vs 'speech-to-sign' (Voice/Text -> 3D ISL Avatar)
+  const [activeMode, setActiveMode] = useState('sign-to-speech')
+
+  // --- Mode A (Sign to Speech) State ---
+  const videoRef = useRef(null)
+  const canvasRef = useRef(null)
+
+  const [cameraActive, setCameraActive] = useState(false)
+  const [cameraLoading, setCameraLoading] = useState(false)
+  const [cameraError, setCameraError] = useState(null)
+  const [isPaused, setIsPaused] = useState(false)
+  const [isSpeaking, setIsSpeaking] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const [currentDetection, setCurrentDetection] = useState({
+    sign: 'UNKNOWN',
+    confidence: 0,
+    isUnknown: true,
+    metadata: null
+  })
+
+  const [recognizedTokens, setRecognizedTokens] = useState([])
+  const [generatedSentence, setGeneratedSentence] = useState('')
+  const [selectedLang, setSelectedLang] = useState('en')
+  const [faceStatus, setFaceStatus] = useState('initializing')
+  const [expression, setExpression] = useState(INITIAL_EXPRESSION)
+
+  const stableSignRef = useRef({ sign: null, count: 0 })
+  const lastCommittedSignRef = useRef(null)
+  const expressionHistoryRef = useRef([])
+  const expressionPendingRef = useRef({ tone: null, count: 0 })
+  const smoothedConfidenceRef = useRef(0)
+  const localClassificationRef = useRef({ isUnknown: true })
+  const isPausedRef = useRef(isPaused)
+  useEffect(() => {
+    isPausedRef.current = isPaused
+  }, [isPaused])
+
+  // Automatically keep constructed sentence synchronized with tokens and chosen language
+  useEffect(() => {
+    setGeneratedSentence(buildMultilingualSentence(recognizedTokens, selectedLang))
+  }, [recognizedTokens, selectedLang])
+
+  useEffect(() => {
+    const enabled = import.meta.env.VITE_PYTHON_RECOGNIZER === 'true'
+    pythonRecognizer.configure({ enabled })
+    pythonRecognizer.onPrediction = (prediction) => {
+      if (!localClassificationRef.current.isUnknown) return
+
+      const confidence = Math.round((prediction.confidence || 0) * 100)
+      setCurrentDetection({
+        sign: prediction.sign || 'UNKNOWN',
+        confidence,
+        isUnknown: confidence < 30,
+        metadata: null
+      })
+    }
+
+    return () => {
+      pythonRecognizer.onPrediction = null
+      pythonRecognizer.configure({ enabled: false })
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    faceExpressionTracker.initialize()
+      .then(() => {
+        if (active) setFaceStatus('ready')
+      })
+      .catch((error) => {
+        console.error('Face Landmarker initialization failed:', error)
+        if (active) {
+          setFaceStatus('error')
+          setExpression({ ...FACE_UNAVAILABLE_EXPRESSION, reason: 'Facial analysis unavailable' })
+        }
+      })
+
+    return () => {
+      active = false
+      faceExpressionTracker.close()
+    }
+  }, [])
+
+  const resetExpression = (status = 'ready') => {
+    expressionHistoryRef.current = []
+    expressionPendingRef.current = { tone: null, count: 0 }
+    smoothedConfidenceRef.current = 0
+    setFaceStatus(status)
+    setExpression(status === 'error' ? FACE_UNAVAILABLE_EXPRESSION : INITIAL_EXPRESSION)
+  }
+
+  const handleFaceResults = (result) => {
+    const faceDetected = Boolean(result.faceLandmarks?.length)
+    const categories = result.faceBlendshapes?.[0]?.categories || []
+
+    if (!faceDetected) {
+      expressionHistoryRef.current = []
+      expressionPendingRef.current = { tone: null, count: 0 }
+      setFaceStatus('not-detected')
+      setExpression(FACE_UNAVAILABLE_EXPRESSION)
+      return
+    }
+
+    const prediction = analyzeExpression(categories)
+    if (!prediction.available) {
+      setFaceStatus('insufficient')
+      setExpression(prediction)
+      return
+    }
+
+    expressionHistoryRef.current = [...expressionHistoryRef.current, prediction.tone].slice(-15)
+    const counts = expressionHistoryRef.current.reduce((map, tone) => {
+      map[tone] = (map[tone] || 0) + 1
+      return map
+    }, {})
+    const dominantTone = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0]
+    const pending = expressionPendingRef.current
+
+    if (dominantTone === pending.tone) {
+      pending.count += 1
+    } else {
+      pending.tone = dominantTone
+      pending.count = 1
+    }
+
+    if (pending.count >= 4 || expression.tone === dominantTone) {
+      smoothedConfidenceRef.current = smoothedConfidenceRef.current
+        ? smoothedConfidenceRef.current * 0.7 + prediction.confidence * 0.3
+        : prediction.confidence
+      setFaceStatus('detected')
+      setExpression({
+        ...prediction,
+        tone: dominantTone,
+        confidence: smoothedConfidenceRef.current
+      })
+    }
+  }
+
+  const handleFaceError = (error) => {
+    console.error('Face Landmarker runtime error:', error)
+    faceExpressionTracker.stop()
+    setFaceStatus('error')
+    setExpression({ ...FACE_UNAVAILABLE_EXPRESSION, reason: error?.message || 'Facial analysis unavailable' })
+  }
+
+  // --- Mode B (Speech / Text to 3D Avatar) State ---
+  const [textInput, setTextInput] = useState('HELLO NAMASTE')
+  const [activeAvatarText, setActiveAvatarText] = useState('HELLO NAMASTE')
+  const [isListening, setIsListening] = useState(false)
+  const recognitionRef = useRef(null)
+
+  // Handle MediaPipe tracking results
+  const handleMediaPipeResults = useCallback((results) => {
+    if (isPausedRef.current) return
+
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+      const primaryHand = results.multiHandLandmarks[0]
+
+      results.multiHandLandmarks.forEach((landmarks) => {
+        handTracker.drawSkeleton(ctx, landmarks, canvas.width, canvas.height, true)
+      })
+
+      const classification = classifyISLSign(primaryHand, results.multiHandLandmarks)
+      localClassificationRef.current = classification
+      setCurrentDetection(classification)
+      pythonRecognizer.addFrame(results)
+
+      // Buffer commitment on stable hold (14 frames = ~450ms)
+      if (!classification.isUnknown && classification.sign !== 'UNKNOWN') {
+        if (stableSignRef.current.sign === classification.sign) {
+          stableSignRef.current.count += 1
+          if (stableSignRef.current.count >= 14) {
+            if (lastCommittedSignRef.current !== classification.sign) {
+              setRecognizedTokens(prev => {
+                if (prev.length > 0 && prev[prev.length - 1] === classification.sign) {
+                  return prev; // Block consecutive duplicates from hand holds/jitters
+                }
+                return [...prev, classification.sign];
+              })
+              lastCommittedSignRef.current = classification.sign
+            }
+          }
+        } else {
+          stableSignRef.current = { sign: classification.sign, count: 1 }
+        }
+      } else {
+        stableSignRef.current = { sign: null, count: 0 }
+        lastCommittedSignRef.current = null
+      }
+    } else {
+      localClassificationRef.current = { isUnknown: true }
+      setCurrentDetection({
+        sign: 'UNKNOWN',
+        confidence: 0,
+        isUnknown: true,
+        metadata: null
+      })
+      stableSignRef.current = { sign: null, count: 0 }
+      lastCommittedSignRef.current = null
+    }
+  }, [])
+
+  const handleStartCamera = async () => {
+    setCameraLoading(true)
+    setCameraError(null)
+    try {
+      if (videoRef.current) {
+        await handTracker.startCamera(videoRef.current, handleMediaPipeResults)
+        setCameraActive(true)
+        try {
+          await faceExpressionTracker.start(videoRef.current, handleFaceResults, handleFaceError)
+        } catch (error) {
+          handleFaceError(error)
+        }
+      }
+    } catch (err) {
+      console.error('Camera startup failed:', err)
+      setCameraError('Camera access was denied or is unavailable. You can test with the verified sign selector chips below.')
+      setCameraActive(false)
+    } finally {
+      setCameraLoading(false)
+    }
+  }
+
+  const handleStopCamera = () => {
+    handTracker.stopCamera()
+    faceExpressionTracker.stop()
+    setCameraActive(false)
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d')
+      if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
+    }
+    setCurrentDetection({
+      sign: 'UNKNOWN',
+      confidence: 0,
+      isUnknown: true,
+      metadata: null
+    })
+    resetExpression('ready')
+  }
+
+  const handleSpeakSentence = () => {
+    if (!generatedSentence) return
+
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel()
+      const utterance = new SpeechSynthesisUtterance(generatedSentence)
+      
+      // Use localized Indian voice locales for rich audio synthesis
+      if (selectedLang === 'hi') {
+        utterance.lang = 'hi-IN'
+      } else if (selectedLang === 'mr') {
+        utterance.lang = 'mr-IN'
+      } else {
+        utterance.lang = 'en-IN'
+      }
+
+      utterance.rate = 0.95
+      utterance.pitch = 1.0
+      setIsSpeaking(true)
+      utterance.onend = () => setIsSpeaking(false)
+      utterance.onerror = () => setIsSpeaking(false)
+      window.speechSynthesis.speak(utterance)
+    } else {
+      setIsSpeaking(true)
+      setTimeout(() => setIsSpeaking(false), 1200)
+    }
+  }
+
+  const handleClearBuffer = () => {
+    setRecognizedTokens([])
+    setGeneratedSentence('')
+    lastCommittedSignRef.current = null
+    stableSignRef.current = { sign: null, count: 0 }
+  }
+
+  const handleCopyText = () => {
+    if (!generatedSentence) return
+    navigator.clipboard.writeText(generatedSentence)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  const handleSimulateSign = (v) => {
+    setCurrentDetection({
+      sign: v.id,
+      confidence: 94,
+      isUnknown: false,
+      metadata: v
+    })
+    setRecognizedTokens(prev => {
+      if (prev.length > 0 && prev[prev.length - 1] === v.id) {
+        return prev;
+      }
+      return [...prev, v.id];
+    })
+  }
+
+  // Voice Input for Speech to 3D Sign Mode
+  const handleToggleVoiceInput = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      alert('Speech recognition is not supported in this browser. You can type in the box directly.')
+      return
+    }
+
+    if (isListening) {
+      recognitionRef.current?.stop()
+      setIsListening(false)
+    } else {
+      const recognition = new SpeechRecognition()
+      recognition.continuous = false
+      recognition.interimResults = false
+      recognition.lang = 'en-US'
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript
+        setTextInput(transcript)
+        setActiveAvatarText(transcript.toUpperCase())
+        setIsListening(false)
+      }
+
+      recognition.onerror = () => setIsListening(false)
+      recognition.onend = () => setIsListening(false)
+
+      recognitionRef.current = recognition
+      recognition.start()
+      setIsListening(true)
+    }
+  }
+
+  const handleTranslateToSign = (e) => {
+    e?.preventDefault()
+    if (textInput.trim()) {
+      setActiveAvatarText(textInput.trim().toUpperCase())
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      handTracker.stopCamera()
+      faceExpressionTracker.stop()
+      recognitionRef.current?.stop()
+    }
+  }, [])
+
+  return (
+    <div className="pt-28 pb-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
+      <style>{`
+        @media (max-width: 767px) {
+          .communicate-camera-panel {
+            width: 100%;
+            max-width: 100%;
+            aspect-ratio: auto;
+            height: clamp(480px, 72dvh, 680px);
+            min-height: 0;
+          }
+          .communicate-camera-panel video,
+          .communicate-camera-panel canvas {
+            object-fit: cover;
+          }
+        }
+        @media (min-width: 768px) and (max-width: 1279px) {
+          .communicate-camera-panel {
+            aspect-ratio: 4 / 3;
+          }
+        }
+      `}</style>
+      
+      {/* Header & 2-Way Mode Switcher */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-mudra-lavender-200/60">
+        <div>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-mudra-lavender-100 text-mudra-lavender-700 text-xs font-bold font-mono mb-1">
+            <Radio className="w-3.5 h-3.5 text-mudra-lavender-600 animate-pulse" />
+            <span>2-WAY REAL-TIME COMMUNICATION BRIDGE</span>
+          </div>
+          <h1 className="font-display font-extrabold text-3xl sm:text-4xl text-mudra-indigo-900">
+            Communicate Hub
+          </h1>
+          <p className="text-sm text-mudra-indigo-600 mt-1">
+            Seamless two-way bridge between Indian Sign Language gestures and spoken language.
+          </p>
+        </div>
+
+        {/* Mode Switcher Tabs */}
+        <div className="flex items-center gap-1.5 p-1.5 rounded-2xl bg-white/90 border border-mudra-lavender-200 shadow-xs">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveMode('sign-to-speech')
+            }}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeMode === 'sign-to-speech'
+                ? 'bg-mudra-lavender-600 text-white shadow-xs'
+                : 'text-mudra-indigo-700 hover:bg-mudra-lavender-50'
+            }`}
+          >
+            <Camera className="w-3.5 h-3.5" />
+            <span>Sign &rarr; Voice</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              handleStopCamera()
+              setActiveMode('speech-to-sign')
+            }}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeMode === 'speech-to-sign'
+                ? 'bg-mudra-lavender-600 text-white shadow-xs'
+                : 'text-mudra-indigo-700 hover:bg-mudra-lavender-50'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Voice &rarr; 3D Avatar</span>
+          </button>
+        </div>
+      </div>
+
+      {/* MODE 1: SIGN TO SPEECH (Signer to Listener) */}
+      {activeMode === 'sign-to-speech' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start animate-fadeIn">
+          
+          {/* Left: Live Webcam + Canvas Landmark Overlay */}
+          <div className="lg:col-span-7 space-y-5">
+            <div className="communicate-camera-panel relative aspect-video sm:aspect-[4/3] min-h-[320px] sm:min-h-0 bg-mudra-indigo-900 rounded-3xl overflow-hidden shadow-xl border-2 border-mudra-indigo-700/90 flex flex-col justify-between p-4 sm:p-5 text-white">
+              
+              <video
+                ref={videoRef}
+                className={`absolute inset-0 w-full h-full object-cover transform -scale-x-100 ${
+                  cameraActive ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                }`}
+                playsInline
+                muted
+              />
+
+              <canvas
+                ref={canvasRef}
+                width={640}
+                height={480}
+                className="absolute inset-0 w-full h-full object-cover z-10 pointer-events-none"
+              />
+
+              {!cameraActive && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-0">
+                  <div className="w-16 h-16 rounded-2xl bg-mudra-indigo-800 border border-mudra-indigo-500/80 flex items-center justify-center text-mudra-lavender-200 mb-3 shadow-lg">
+                    <Camera className="w-8 h-8 text-mudra-lavender-400" />
+                  </div>
+                  <h3 className="font-display font-bold text-base text-white mb-1">
+                    Camera is Offline
+                  </h3>
+                  <p className="text-xs leading-relaxed text-mudra-indigo-100 max-w-sm mb-5">
+                    Turn on camera to track hand landmarks and recognize ISL signs in real time.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleStartCamera}
+                    disabled={cameraLoading}
+                    className="btn-primary min-h-11 rounded-2xl py-2.5 px-5 text-xs font-bold shadow-lg"
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span>{cameraLoading ? 'Starting MediaPipe...' : 'Start Camera Stream'}</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Status Header */}
+              <div className="flex items-center justify-between z-20">
+                <div className="flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 text-xs">
+                  <span className={`w-2 h-2 rounded-full ${cameraActive ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+                  <span className="font-mono">{cameraActive ? 'LIVE TRACKING' : 'OFFLINE'}</span>
+                </div>
+
+                {cameraActive && (
+                  <div className="flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 text-xs font-mono text-mudra-peach-300">
+                    <span>Confidence: {currentDetection.confidence}%</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Bottom Controls */}
+              {cameraActive && (
+                <div className="flex flex-wrap items-center justify-between gap-3 z-20 pt-2 border-t border-white/10">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleStopCamera}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/90 hover:bg-rose-600 text-white text-xs font-bold transition-all"
+                    >
+                      <CameraOff className="w-3.5 h-3.5" />
+                      <span>Stop Camera</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsPaused(!isPaused)}
+                      className="px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-semibold backdrop-blur-md border border-white/10 flex items-center gap-1.5"
+                    >
+                      {isPaused ? <Play className="w-3.5 h-3.5 text-emerald-400" /> : <Pause className="w-3.5 h-3.5" />}
+                      <span>{isPaused ? 'Resume' : 'Pause'}</span>
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleClearBuffer}
+                    className="px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-semibold backdrop-blur-md border border-white/10 flex items-center gap-1.5"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Clear Buffer</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Sign Simulator Chips */}
+            <div className="glass-card rounded-3xl p-4 border border-white space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-mudra-indigo-900 font-display">Verified Signs (Hold in camera or click to simulate):</span>
+                <span className="text-[10px] text-mudra-indigo-500 font-mono">8 Signs</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {ISL_VOCABULARY_LEXICON.slice(0, 8).map((v) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => handleSimulateSign(v)}
+                    className="p-2 rounded-xl text-left border bg-white border-mudra-lavender-200 hover:bg-mudra-lavender-50 transition-all flex items-center justify-between text-xs"
+                  >
+                    <span className="font-bold text-mudra-indigo-900">{v.label}</span>
+                    <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">ISL</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Interpretation Panel & Speech Out */}
+          <div className="lg:col-span-5 space-y-5 lg:pt-0">
+            <div className="glass-card rounded-3xl p-5 sm:p-6 border border-mudra-lavender-200/80 shadow-lg space-y-7">
+              
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold uppercase tracking-[0.12em] text-mudra-lavender-800 font-display">
+                    Detected Sign
+                  </span>
+                  <span className={`shrink-0 text-[11px] font-mono font-bold px-2.5 py-1 rounded-full border ${
+                    currentDetection.isUnknown
+                      ? 'bg-gray-100 text-gray-600 border-gray-200'
+                      : 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                  }`}>
+                    {currentDetection.isUnknown ? 'Threshold < 68%' : `${currentDetection.confidence}% Confidence`}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-3 min-h-12">
+                  <span className={`font-display font-extrabold text-3xl sm:text-4xl tracking-tight leading-none break-words ${
+                    currentDetection.isUnknown ? 'text-mudra-indigo-600 italic' : 'text-mudra-indigo-950'
+                  }`}>
+                    {currentDetection.isUnknown ? 'UNKNOWN / SCANNING...' : currentDetection.sign}
+                  </span>
+                  {currentDetection.metadata && (
+                    <span className="text-2xl">{currentDetection.metadata.emoji}</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Committed Sequence Buffer */}
+              <div className="space-y-2 pt-2 border-t border-mudra-lavender-200/60">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-mudra-indigo-500 font-display">
+                    Recognized
+                  </span>
+                  <span className="text-[10px] text-mudra-indigo-400 font-mono">
+                    {recognizedTokens.length} Tokens
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap min-h-[42px] p-2.5 rounded-xl bg-mudra-ivory-100/90 border border-mudra-lavender-200">
+                  {recognizedTokens.length > 0 ? (
+                    recognizedTokens.map((token, i) => (
+                      <React.Fragment key={i}>
+                        <span className="px-2.5 py-1 rounded-lg bg-mudra-indigo-900 text-white font-mono text-xs font-semibold shadow-xs">
+                          {token}
+                        </span>
+                        {i < recognizedTokens.length - 1 && (
+                          <span className="text-mudra-indigo-400 text-xs font-bold">&rarr;</span>
+                        )}
+                      </React.Fragment>
+                    ))
+                  ) : (
+                    <span className="text-xs text-mudra-indigo-400 italic">
+                      Hold a sign steady in camera to commit token
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Natural Sentence Output */}
+              <div className="space-y-2 pt-2 border-t border-mudra-lavender-200/60">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-mudra-indigo-500 font-display">
+                    Meaning
+                  </span>
+                  
+                  {/* Language Selector Tabs */}
+                  <div className="flex items-center gap-1 p-1 rounded-xl bg-mudra-ivory-100 border border-mudra-lavender-200 shadow-xs shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedLang('en')}
+                      className={`min-w-9 px-2.5 py-1.5 rounded-lg text-[10px] font-bold tracking-wider uppercase transition-all ${
+                        selectedLang === 'en'
+                          ? 'bg-mudra-lavender-600 text-white shadow-xs'
+                          : 'text-mudra-indigo-700 hover:bg-mudra-lavender-50'
+                      }`}
+                    >
+                      EN
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedLang('hi')}
+                      className={`min-w-9 px-2.5 py-1.5 rounded-lg text-[10px] font-bold tracking-wider uppercase transition-all ${
+                        selectedLang === 'hi'
+                          ? 'bg-mudra-lavender-600 text-white shadow-xs'
+                          : 'text-mudra-indigo-700 hover:bg-mudra-lavender-50'
+                      }`}
+                    >
+                      हिन्दी
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedLang('mr')}
+                      className={`min-w-9 px-2.5 py-1.5 rounded-lg text-[10px] font-bold tracking-wider uppercase transition-all ${
+                        selectedLang === 'mr'
+                          ? 'bg-mudra-lavender-600 text-white shadow-xs'
+                          : 'text-mudra-indigo-700 hover:bg-mudra-lavender-50'
+                      }`}
+                    >
+                      मराठी
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-gradient-to-br from-mudra-lavender-50 via-white to-mudra-peach-50 border border-mudra-lavender-300 min-h-[64px] flex items-center">
+                  <div className="font-display font-semibold text-lg sm:text-xl text-mudra-indigo-950">
+                    {generatedSentence ? `"${generatedSentence}"` : <span className="text-mudra-indigo-400 italic">No sentence generated yet</span>}
+                  </div>
+                </div>
+              </div>
+
+              {/* Facial expression interpretation layer */}
+              <div className="space-y-3 pt-2 border-t border-mudra-lavender-200/60">
+                <div className="flex items-start gap-3">
+                  <span
+                    key={`${expression.tone}-${faceStatus}`}
+                    className="text-3xl leading-none animate-fadeIn"
+                    aria-hidden="true"
+                  >
+                    {faceStatus === 'not-detected' || faceStatus === 'error' ? '🤔' : expression.emoji}
+                  </span>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-mudra-lavender-700 font-display">
+                        EXPRESSIVE TONE
+                      </span>
+                      {faceStatus === 'detected' && expression.available && (
+                        <span className="text-[10px] font-mono font-bold text-mudra-indigo-600">
+                          {Math.round(expression.confidence * 100)}% tone confidence
+                        </span>
+                      )}
+                    </div>
+                    <div className="font-display font-bold text-lg text-mudra-indigo-950">
+                      {faceStatus === 'not-detected'
+                        ? 'Face not detected'
+                        : faceStatus === 'error'
+                        ? 'Expressive tone unavailable'
+                        : faceStatus === 'insufficient'
+                        ? 'Neutral'
+                        : expression.label}
+                    </div>
+                    <p className="text-xs leading-relaxed text-mudra-indigo-600">
+                      {faceStatus === 'initializing'
+                        ? 'Loading facial analysis...'
+                        : !cameraActive
+                        ? 'Start the camera to analyze expression.'
+                        : faceStatus === 'not-detected'
+                        ? 'Face not detected.'
+                        : faceStatus === 'error'
+                        ? expression.reason
+                        : faceStatus === 'insufficient'
+                        ? 'Insufficient expressive cues.'
+                        : 'Estimated from facial and visual cues.'}
+                    </p>
+                    <p className="text-[10px] font-medium text-mudra-indigo-500">
+                      Facial expression analysis runs locally on your device.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons: Speak & Copy */}
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleSpeakSentence}
+                  disabled={!generatedSentence}
+                  className={`btn-primary min-h-12 min-w-0 flex-[1_1_12rem] rounded-2xl py-3.5 text-sm shadow-md ${
+                    isSpeaking ? 'bg-mudra-lavender-700 animate-pulse' : ''
+                  }`}
+                >
+                  <Volume2 className={`w-4 h-4 ${isSpeaking ? 'animate-bounce' : ''}`} />
+                  <span>{isSpeaking ? 'Speaking Out Loud...' : 'Speak Sentence'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCopyText}
+                  disabled={!generatedSentence}
+                  className="btn-secondary shrink-0 py-3.5 px-4 text-xs font-semibold"
+                  title="Copy sentence"
+                >
+                  {copied ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                  <span>{copied ? 'Copied' : 'Copy'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleClearBuffer}
+                  className="btn-secondary shrink-0 py-3.5 px-3 text-xs"
+                  title="Clear tokens"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      {/* MODE 2: SPEECH / TEXT TO 3D AVATAR (Listener to Signer) */}
+      {activeMode === 'speech-to-sign' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start animate-fadeIn">
+          
+          {/* Left: Input & Speech Dictation */}
+          <div className="lg:col-span-6 space-y-5">
+            <div className="glass-card rounded-3xl p-6 sm:p-7 border border-white shadow-xl space-y-5">
+              <div>
+                <div className="inline-flex items-center gap-1.5 text-xs font-bold text-mudra-peach-warm uppercase tracking-wider font-mono mb-1">
+                  <Mic className="w-3.5 h-3.5" />
+                  <span>Hearing Speaker Input</span>
+                </div>
+                <h2 className="font-display font-bold text-xl sm:text-2xl text-mudra-indigo-900">
+                  Speak or Type to Translate to ISL
+                </h2>
+                <p className="text-xs text-mudra-indigo-600 mt-1">
+                  The MUDRA 3D Avatar will perform the sign language translation in real time.
+                </p>
+              </div>
+
+              <form onSubmit={handleTranslateToSign} className="space-y-3">
+                <div className="relative">
+                  <textarea
+                    rows={3}
+                    value={textInput}
+                    onChange={(e) => setTextInput(e.target.value)}
+                    placeholder="Type words or letters (e.g. 'HELLO', 'NAMASTE', 'THANK YOU', 'YES', 'NO', 'TIME')..."
+                    className="w-full p-4 rounded-2xl bg-white border border-mudra-lavender-200 text-sm text-mudra-indigo-900 focus:outline-none focus:border-mudra-lavender-500 shadow-inner resize-none font-medium"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={handleToggleVoiceInput}
+                    className={`absolute bottom-3 right-3 p-2.5 rounded-xl border transition-all ${
+                      isListening
+                        ? 'bg-rose-500 text-white animate-pulse border-rose-600 shadow-md'
+                        : 'bg-mudra-lavender-50 text-mudra-lavender-700 border-mudra-lavender-200 hover:bg-mudra-lavender-100'
+                    }`}
+                    title={isListening ? 'Listening...' : 'Click to Speak via Microphone'}
+                  >
+                    {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-1 text-[11px] text-mudra-indigo-500">
+                    <Sparkles className="w-3 h-3 text-mudra-lavender-600" />
+                    <span>Supports 10 Core Words & 26 Alphabet Fingerspellings</span>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="btn-primary py-2.5 px-5 text-xs font-bold flex items-center gap-2"
+                  >
+                    <span>Sign with 3D Avatar</span>
+                    <Send className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </form>
+
+              {/* Sample phrases */}
+              <div className="pt-2 border-t border-mudra-lavender-200/60 space-y-2">
+                <span className="text-[11px] font-bold uppercase text-mudra-indigo-500 font-display">
+                  Quick Phrases:
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {['HELLO', 'NAMASTE', 'THANK YOU', 'YES', 'NO', 'TIME', 'HOME', 'GOODBYE'].map((phrase) => (
+                    <button
+                      key={phrase}
+                      type="button"
+                      onClick={() => {
+                        setTextInput(phrase)
+                        setActiveAvatarText(phrase)
+                      }}
+                      className="px-3 py-1 rounded-xl bg-white hover:bg-mudra-lavender-50 border border-mudra-lavender-200 text-xs font-semibold text-mudra-indigo-800 transition-colors shadow-xs"
+                    >
+                      {phrase}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right: 3D Avatar Screen */}
+          <div className="lg:col-span-6 space-y-4">
+            <MudraAvatarViewer
+              signText={activeAvatarText}
+              className="w-full h-[400px] sm:h-[450px]"
+            />
+          </div>
+
+        </div>
+      )}
+
+    </div>
+  )
+}

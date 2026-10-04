@@ -1,0 +1,34 @@
+# MUDRA backend + ML training environment (Python 3.14, Windows, NVIDIA RTX 50-series)
+# RTX 50-series (Blackwell, sm_120) needs CUDA 12.8+ PyTorch builds.
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+# API
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
+python-multipart==0.0.32
+pydantic==2.13.5
+
+# Deep learning
+torch==2.11.0+cu128
+torchvision==0.26.0+cu128
+onnx==1.23.1
+onnxruntime==1.30.0
+
+# Vision / landmarks
+mediapipe==1.0.1
+opencv-python==5.0.0.93
+
+# Data & evaluation
+numpy==2.5.2
+pandas==3.0.6
+pyarrow==25.0.1
+scikit-learn==1.9.1
+matplotlib==3.11.2
+tensorboard==2.21.0
+tqdm==4.70.1
+PyYAML==6.0.3
+
+# Dataset download & dev tooling
+kaggle==2.2.4
+pytest==9.1.1
+ruff==0.16.10
