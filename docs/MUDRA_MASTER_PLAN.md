@@ -218,3 +218,20 @@ Mudra_Claude_Handoff/
 - Found and corrected a scaling quirk in the OpenHands INCLUDE release (x and y multipliers swapped); without the fix
   bodies were stretched ~3x vertically and a model would not transfer to webcam input.
 - Next: run audit + extraction on the original 794 videos / 1,090 images once their location is known, then Phase 2.
+
+### 2026-10-04: Phase 2 results on public data (landmark models)
+Official INCLUDE test sets, single seed, not signer-independent (INCLUDE has no signer IDs).
+
+| Model | INCLUDE-50 acc / macro-F1 | INCLUDE (263) acc / macro-F1 | Params |
+|---|---|---|---:|
+| Landmark MLP + pooling | 97.9% / 0.974 | 96.5% / 0.968 | 150k |
+| Landmark MLP + BiLSTM (spec default) | 96.4% / 0.951 | 96.6% / 0.964 | 2.6M |
+| Landmark MLP + Transformer | 99.0% / 0.990 | 96.9% / 0.971 | 1.4M |
+| BiLSTM without velocity features | 99.5% / 0.990 | 97.1% / 0.971 | 2.6M |
+| BiLSTM without augmentation | 96.4% / 0.963 | 95.2% / 0.950 | 2.6M |
+
+Published INCLUDE (263) references: 85.6% (original paper), 93.5% (OpenHands SL-GCN), 97.7% (HWGAT).
+Findings: augmentation helps (+1.4 pts on INCLUDE); velocity features are not needed; temporal models
+(BiLSTM / Transformer) are within ~0.5 pt of each other, which is inside single-seed noise.
+INCLUDE-50 validation is too small to calibrate confidence; full-INCLUDE calibration is usable (ECE 0.01-0.02).
+Tables: `experiments/ablations/include*_summary.md`. CNN ablations (A, D, E) still need RGB video.
