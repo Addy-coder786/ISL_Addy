@@ -9,6 +9,7 @@ metrics. Re-running skips clips that were already extracted (resumable).
 from __future__ import annotations
 
 import argparse
+import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import replace
 from pathlib import Path
@@ -77,10 +78,19 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=None)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--limit", type=int, default=None, help="process only the first N files (smoke test)")
+    parser.add_argument("--labels", nargs="*", default=None, help="only these labels (normalised, e.g. HELLO THANK_YOU)")
+    parser.add_argument("--exclude", default=None, help="regex; skip files whose name matches (e.g. _tilt$)")
+    parser.add_argument("--group-strip", default=None, help="regex removed from file stems to group copies of one recording")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    rows = discover_media(project_path(args.input), args.source)
+    rows = discover_media(project_path(args.input), args.source, group_strip=args.group_strip)
+    if args.labels:
+        wanted = set(args.labels)
+        rows = [r for r in rows if r.label in wanted]
+    if args.exclude:
+        pattern = re.compile(args.exclude)
+        rows = [r for r in rows if not pattern.search(Path(r.raw_path).stem)]
     if args.limit:
         rows = rows[: args.limit]
     if not rows:

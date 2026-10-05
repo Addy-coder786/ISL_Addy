@@ -110,3 +110,34 @@ def assign_hands(
             continue
         hands[slot], present[slot], score[slot] = hand, True, s
     return hands, present, score
+
+
+# MediaPipe Pose left/right landmark pairs (anatomical), swapped when an image is mirrored.
+POSE_MIRROR_PAIRS = (
+    (1, 4), (2, 5), (3, 6), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16), (17, 18), (19, 20),
+    (21, 22), (23, 24), (25, 26), (27, 28), (29, 30), (31, 32),
+)
+
+
+def mirror_sequence(seq: LandmarkSequence) -> LandmarkSequence:
+    """Horizontally flip a clip: x -> 1 - x, and swap signer-left / signer-right everywhere.
+
+    Undoes selfie-mirrored recordings, or makes a left-handed version of a right-handed clip.
+    """
+    hands = seq.hands[:, ::-1].copy()
+    present = seq.hand_present[:, ::-1].copy()
+    score = seq.hand_score[:, ::-1].copy()
+    hands[..., 0] = np.where(present[..., None], 1.0 - hands[..., 0], 0.0)
+    pose = seq.pose.copy()
+    pose[..., 0] = np.where(seq.pose_present[:, None], 1.0 - pose[..., 0], 0.0)
+    for a, b in POSE_MIRROR_PAIRS:
+        pose[:, [a, b]] = pose[:, [b, a]]
+    return LandmarkSequence(
+        hands=hands.astype(np.float32),
+        hand_present=present,
+        hand_score=score,
+        pose=pose.astype(np.float32),
+        pose_present=seq.pose_present.copy(),
+        timestamps_ms=seq.timestamps_ms.copy(),
+        meta={**seq.meta, "mirrored": not seq.meta.get("mirrored", False)},
+    )

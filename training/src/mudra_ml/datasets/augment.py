@@ -2,7 +2,8 @@
 
 Only physically plausible changes: small camera roll/zoom/shear, landmark jitter,
 temporal cropping (speed / start-end variation) and occasional missed hand
-detections. No horizontal flipping by default: handedness carries meaning in ISL.
+detections. Horizontal flipping (``mirror_prob``) is off by default because handedness can
+carry meaning; enable it when signers in the data use different dominant hands.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ class AugmentConfig:
     jitter: float = 0.003
     hand_dropout: float = 0.05  # per-frame probability of dropping a detected hand
     temporal_crop_min: float = 0.8  # keep at least this fraction of the clip
+    mirror_prob: float = 0.0  # flip clip and swap hands: teaches both dominant hands (off by default)
 
     @classmethod
     def from_dict(cls, values: dict | None) -> AugmentConfig:

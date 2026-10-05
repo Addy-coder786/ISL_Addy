@@ -97,3 +97,22 @@ def test_hand_location_distinguishes_chin_from_chest():
     # Same hand shape, different location -> shape identical, location y differs in sign
     assert loc_high[1] < 0 < loc_low[1]
     np.testing.assert_allclose(feats[0][0, start - schema.HAND_SHAPE_DIM : start], feats[1][0, start - schema.HAND_SHAPE_DIM : start], atol=1e-5)
+
+
+def test_mirror_twice_is_identity_and_swaps_hands():
+    from mudra_ml.preprocessing.sequence import LandmarkSequence, mirror_sequence
+
+    rng = np.random.default_rng(5)
+    T = 4
+    hands = rng.random((T, 2, 21, 3)).astype(np.float32)
+    present = np.array([[True, False]] * T)
+    hands[:, 1] = 0
+    seq = LandmarkSequence(hands, present, present.astype(np.float32), rng.random((T, 33, 4)).astype(np.float32),
+                           np.ones(T, bool), np.arange(T), {"width": 640, "height": 480})
+    once = mirror_sequence(seq)
+    assert once.hand_present[:, 1].all() and not once.hand_present[:, 0].any()  # left hand became right
+    np.testing.assert_allclose(once.hands[:, 1, :, 0], 1 - seq.hands[:, 0, :, 0], atol=1e-6)
+    np.testing.assert_allclose(once.pose[:, 12, 0], 1 - seq.pose[:, 11, 0], atol=1e-6)
+    twice = mirror_sequence(once)
+    np.testing.assert_allclose(twice.hands, seq.hands, atol=1e-6)
+    np.testing.assert_allclose(twice.pose, seq.pose, atol=1e-6)

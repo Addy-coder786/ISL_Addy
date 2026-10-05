@@ -15,7 +15,7 @@ from mudra_ml.data.manifest import read_manifest
 from mudra_ml.datasets.augment import AugmentConfig, affine_jitter, temporal_window
 from mudra_ml.preprocessing.frame_sampler import sample_indices
 from mudra_ml.preprocessing.normalization import build_frame_features
-from mudra_ml.preprocessing.sequence import LandmarkSequence, load_sequence
+from mudra_ml.preprocessing.sequence import LandmarkSequence, load_sequence, mirror_sequence
 
 # Coordinate blocks inside a frame feature vector and the mask column that gates each one.
 _LEFT = slice(0, schema.HAND_SHAPE_DIM + schema.HAND_LOCATION_DIM)
@@ -88,6 +88,8 @@ def sequence_features(
     augment: AugmentConfig | None = None,
 ) -> np.ndarray:
     """Sample ``seq_len`` frames, optionally augment, and build unstandardised features."""
+    if augment is not None and rng is not None and augment.mirror_prob > 0 and rng.random() < augment.mirror_prob:
+        seq = mirror_sequence(seq)
     width, height = int(seq.meta.get("width", 0)), int(seq.meta.get("height", 0))
     n = seq.num_frames
     if augment is not None and rng is not None:

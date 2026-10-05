@@ -62,8 +62,12 @@ def read_signer_map(source_root: Path) -> dict[str, str]:
         return {row["relative_path"].replace("\\", "/"): row["signer_id"] for row in csv.DictReader(f)}
 
 
-def discover_media(source_root: Path, source: str) -> list[ManifestRow]:
-    """Find all videos/images under ``source_root`` and build unprocessed manifest rows."""
+def discover_media(source_root: Path, source: str, group_strip: str | None = None) -> list[ManifestRow]:
+    """Find all videos/images under ``source_root`` and build unprocessed manifest rows.
+
+    ``group_strip`` is a regex removed from each file stem to find copies of one recording
+    (e.g. ``_(left|right)_tilt$``); all copies then share a group and can never cross splits.
+    """
     signer_map = read_signer_map(source_root)
     rows: list[ManifestRow] = []
     for path in sorted(source_root.rglob("*")):
@@ -74,6 +78,13 @@ def discover_media(source_root: Path, source: str) -> list[ManifestRow]:
         kind = "video" if ext in VIDEO_EXTENSIONS else "image"
         signer = signer_map.get(rel, "")
         sample_id = stable_id(source, rel)
+        if signer:
+            group = f"{source}:signer:{signer}"
+        elif group_strip:
+            base = re.sub(group_strip, "", path.stem)
+            group = f"{source}:rec:{stable_id(path.parent.as_posix(), base)}"
+        else:
+            group = f"{source}:clip:{sample_id}"
         rows.append(
             ManifestRow(
                 sample_id=sample_id,
@@ -81,7 +92,7 @@ def discover_media(source_root: Path, source: str) -> list[ManifestRow]:
                 source=source,
                 kind=kind,
                 signer_id=signer,
-                group_id=f"{source}:signer:{signer}" if signer else f"{source}:clip:{sample_id}",
+                group_id=group,
                 raw_path=str(path),
             )
         )

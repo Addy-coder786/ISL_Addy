@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 
 from mudra_ml.config import project_path
 from mudra_ml.datasets.isl_dataset import FeatureConfig, ISLLandmarkDataset
-from mudra_ml.evaluation.metrics import calibration_reliable, fit_temperature, write_report
+from mudra_ml.evaluation.metrics import calibration_reliable, compute_metrics, fit_temperature, write_report
 from mudra_ml.models.sequence_model import ModelConfig, build_model
 
 
@@ -51,11 +51,13 @@ def evaluate_run(run_dir: Path, splits: tuple[str, ...] = ("val", "test")) -> di
     amp = bool(ckpt.get("train_config", {}).get("amp", True))
 
     results: dict[str, tuple[np.ndarray, np.ndarray, list[str]]] = {}
+    sources: dict[str, list[str]] = {}
     for split in ("val", *[s for s in splits if s != "val"]):
         ds = ISLLandmarkDataset(split_dir / f"{split}.csv", classes, feature_cfg)
         ds.set_stats(np.asarray(ckpt["feature_mean"]), np.asarray(ckpt["feature_std"]))
         logits, labels = predict(model, DataLoader(ds, batch_size=128), device, amp)
         results[split] = (logits, labels, [r.sample_id for r in ds.rows])
+        sources[split] = [r.source for r in ds.rows]
 
     val_logits, val_labels, _ = results["val"]
     temperature = fit_temperature(val_logits, val_labels)
@@ -66,6 +68,15 @@ def evaluate_run(run_dir: Path, splits: tuple[str, ...] = ("val", "test")) -> di
         split: write_report(reports, split, logits, labels, classes, ids, temperature)
         for split, (logits, labels, ids) in results.items()
     }
+
+    # Accuracy per data source, so a combined model cannot hide a weak dataset behind a strong one
+    for split, (logits, labels, _) in results.items():
+        src = np.asarray(sources[split])
+        if len(set(src)) > 1:
+            metrics[split]["per_source"] = {
+                s: {k: compute_metrics(logits[src == s], labels[src == s], temperature)[k] for k in ("num_samples", "accuracy", "top5_accuracy", "macro_f1")}
+                for s in sorted(set(src))
+            }
 
     ckpt.update({"temperature": temperature, "calibration_reliable": calibration_ok, "test_metrics": metrics.get("test")})
     torch.save(ckpt, run_dir / "best.pt")
@@ -87,5 +98,8 @@ def evaluate_run(run_dir: Path, splits: tuple[str, ...] = ("val", "test")) -> di
         t = metrics["test"]
         summary["test"] = {k: t[k] for k in ("accuracy", "top5_accuracy", "macro_f1", "weighted_f1", "ece", "uncalibrated_ece")}
         summary["test_samples"] = t["num_samples"]
+        if "per_source" in t:
+            summary["test_per_source"] = t["per_source"]
+            (run_dir / "reports" / "test_metrics.json").write_text(json.dumps(t, indent=2), encoding="utf-8")
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return summary

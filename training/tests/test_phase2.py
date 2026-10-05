@@ -153,3 +153,17 @@ def test_training_end_to_end_learns_synthetic_task(split_dir, tmp_path):
     for key in ("model_state", "classes", "feature_config", "feature_mean", "feature_std", "temperature"):
         assert key in ckpt
     assert (tmp_path / "runs").exists()
+
+
+def test_mirror_augmentation_changes_features_and_is_off_by_default(split_dir):
+    classes = json.loads((split_dir / "classes.json").read_text())
+    cfg = FeatureConfig(seq_len=8)
+    assert AugmentConfig().mirror_prob == 0.0
+    always = AugmentConfig(rotation_deg=0, scale=0, shear=0, shift=0, jitter=0, hand_dropout=0, temporal_crop_min=1.0, mirror_prob=1.0)
+    never = AugmentConfig(rotation_deg=0, scale=0, shear=0, shift=0, jitter=0, hand_dropout=0, temporal_crop_min=1.0)
+    a = ISLLandmarkDataset(split_dir / "train.csv", classes, cfg, always, seed=0)
+    b = ISLLandmarkDataset(split_dir / "train.csv", classes, cfg, never, seed=0)
+    xa, xb = a[0][0], b[0][0]
+    # synthetic signer uses the right hand; mirrored copy must show it in the left-hand slot (mask column -3)
+    left_mask = schema.FRAME_FEATURE_DIM - 3
+    assert xb[:, left_mask].max() == 0 and xa[:, left_mask].min() > 0

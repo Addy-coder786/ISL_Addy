@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 from mudra_ml.config import load_config, project_path
@@ -24,6 +25,10 @@ def main() -> None:
     parser.add_argument("--config", default="data.yaml")
     parser.add_argument("--include-flagged", action="store_true", help="keep clips with quality flags")
     parser.add_argument(
+        "--signer-regex", default=None,
+        help=r"regex with one capture group applied to file names lacking a signer ID, e.g. '\((\d+)\)$'",
+    )
+    parser.add_argument(
         "--ratios", nargs=3, type=float, default=None, metavar=("TRAIN", "VAL", "TEST"),
         help="override config ratios; they apply only to rows without an official split",
     )
@@ -37,6 +42,17 @@ def main() -> None:
         # so reported results are not inflated by removing hard examples.
         usable = [r for r in usable if not r.quality_flag or r.split == "test"]
     print(f"{len(usable)}/{len(rows)} rows usable ({len(rows) - len(usable)} failed or flagged excluded)")
+
+    if args.signer_regex:
+        pattern = re.compile(args.signer_regex)
+        tagged = 0
+        for r in usable:
+            m = pattern.search(Path(r.raw_path).stem)
+            if m and not r.signer_id and not r.split:
+                r.signer_id = f"{r.source}:{m.group(1)}"
+                r.group_id = f"{r.source}:signer:{m.group(1)}"
+                tagged += 1
+        print(f"signer-regex grouped {tagged} rows into {len({r.group_id for r in usable if r.signer_id})} signer groups")
 
     ratios = tuple(args.ratios) if args.ratios else tuple(cfg["splits"]["ratios"])
     assign_splits(usable, ratios=ratios, seed=cfg["splits"]["seed"])

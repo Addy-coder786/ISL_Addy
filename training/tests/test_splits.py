@@ -74,3 +74,17 @@ def test_ratios_must_sum_to_one():
 )
 def test_normalize_label(raw, expected):
     assert normalize_label(raw) == expected
+
+
+def test_group_strip_keeps_augmented_copies_together(tmp_path):
+    from mudra_ml.data.manifest import discover_media
+
+    word = tmp_path / "HELLO"
+    word.mkdir()
+    for name in ["rec1", "rec1_left_tilt", "rec1_right_tilt", "rec2", "rec2_left_tilt"]:
+        (word / f"{name}.mp4").write_bytes(b"")
+    rows = discover_media(tmp_path, "t", group_strip=r"_(left|right)_tilt$")
+    groups = {}
+    for r in rows:
+        groups.setdefault(r.group_id, []).append(r.raw_path)
+    assert len(groups) == 2 and sorted(len(v) for v in groups.values()) == [2, 3]
