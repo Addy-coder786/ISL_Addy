@@ -1,59 +1,126 @@
-# MUDRA Claude Handoff Package
+# MUDRA: Indian Sign Language Learning & Real-Time Communication
 
-This folder contains a cleaned, zip-ready version of the unified MUDRA project along with the key planning and summary documents created during the project review.
+MUDRA turns Indian Sign Language (ISL) into text and speech from an ordinary webcam, and turns
+text or speech into ISL with a 3D avatar. It combines a React web app, a FastAPI recognition
+service and a PyTorch landmark model trained on public and team-recorded ISL data.
 
-## Included content
+Only body and hand landmark coordinates leave the browser, never camera images.
 
-- Unified app structure for frontend, backend, shared config, data, and training
-- Project achievements summary
-- SWOT analysis
-- Improvement roadmap
-- Unified project blueprint
-- One-click startup script for local development
+## Status (6 Oct 2026)
 
-## Project structure
+| Area | State |
+|---|---|
+| Web app (Home, Learn, Practice, Communicate, Progress) | Working; avatar demonstrates 26 letters and 13 words |
+| Live recognition (Communicate) | Working: trained model, 314 words, sign start/end detection |
+| Data pipeline (MediaPipe landmarks, leakage-safe splits) | Working: INCLUDE + team data processed |
+| Real-time Phase 1: sign start/end detection | Done |
+| Real-time Phase 2: smoothing, commit rules, idle robustness | Done |
+| Real-time Phase 3: more data and signers, few-shot new words | Next |
 
-- `app/frontend` — React + Vite MUDRA front-end
-- `app/backend` — FastAPI recognition service (`mudra_api/`) serving the exported model in `models/`
-- `app/shared` — shared config and common values
-- `data` — raw recordings, public datasets, extracted landmarks and splits (see `data/README.md`)
-- `training` — `mudra_ml` package: landmark extraction, normalisation, splits, models, training, evaluation, export (see `training/README.md`)
-- `docs` — architecture notes and `MUDRA_MASTER_PLAN.md` (analysis, datasets, roadmap)
+## Results
 
-## Quick start
+Live-use benchmark: held-out signs joined into continuous streams with transitions and idle
+movement. Settings were chosen on validation streams; these are held-out test numbers.
 
-1. Open this folder in Windows Explorer.
-2. Run `start_all.bat`.
-3. The backend starts on `http://localhost:8000` (API docs at `/docs`, health at `/health`).
-4. The frontend starts on `http://localhost:3000`.
-5. Open **Communicate**, start the camera and sign. The pill under "Detected sign" shows
-   whether the trained model is connected; without the backend the page falls back to the
-   rule-based matcher for 8 static signs.
+| Source | Correct | Wrong | Missed | Extra words | False words while idle |
+|---|---|---|---|---|---|
+| INCLUDE (816 signs) | 85.2% | 1.8% | 13.0% | 0 | 0.10 / min |
+| Team words (181 signs) | 98.9% | 0.0% | 1.1% | 0 | 0 |
 
-## How recognition works (Phase 3)
+Browser client replay through the live WebSocket: 22 of 24 correct, 0 wrong.
 
-Browser (MediaPipe Tasks hands + pose, on-device) → rolling 4 s window of landmarks →
-`POST /predict` → `mudra_ml` features (same code as training) → BiLSTM → calibrated
-confidence. A built-in "no sign yet" class keeps the model quiet while hands rest or a sign
-is only half done; predictions below the validation-chosen threshold show as "Uncertain";
-a word is added once it is recognised twice in a row. Only landmark coordinates leave the
-browser, never camera images.
+Clip-level accuracy (complete pre-cut clips):
+- INCLUDE 263 words: 96.7% (mean of 3 seeds). Published references: 85.6% (original paper),
+  93.5% (OpenHands SL-GCN), 97.7% (HWGAT).
+- Team words, on a recording day held out from training: 98.0%.
+- Earlier rule-based / Random-Forest system: about 44%.
 
-Current model: `app/backend/models/isl_mudra_combined_bilstm` — 314 words (INCLUDE 263 +
-61 MUDRA words from `C:\ISL\archive`). Live-streaming test (held-out clips): MUDRA words
-94.5% correct / 0.6% wrong / 5% no word; INCLUDE 92.6% / 2.3% / 5%. See its
-`model_card.json` for metrics, threshold, data sources and limitations. The earlier
-INCLUDE-only model stays in `models/isl_include_bilstm` (set `MUDRA_MODEL_DIR` to use it).
+**Limits:**
+- No dataset has signer IDs, so none of these numbers measure accuracy on new people.
+- The idle movements in the benchmark are synthetic.
+- The app's own words NAMASTE, WATER, HELP, YES, NO, GOODBYE, HOME and PERSON have no training data yet.
 
-## Included markdown files
+## How it works
 
-- `MUDRA_PROJECT_ACHIEVEMENTS.md`
-- `MUDRA_SWOT_ANALYSIS.md`
-- `MUDRA_IMPROVEMENT_PLAN.md`
-- `MUDRA_UNIFIED_PROJECT_BLUEPRINT.md`
+```
+Browser                               Backend (FastAPI)                      Model
+MediaPipe Tasks hands + pose  --WS--> /stream: SignSegmenter            --> BiLSTM over 24 frames
+(on device, ~30 fps)                  resting -> signing -> ended            of hand shape, hand
+                                      classify each whole sign once          position vs shoulders,
+UI: Signing... / "Looks like X" <---- (3-cut smoothing, threshold,           upper-body pose
+    word added / "Did you mean"        cooldown, "no sign" class)
+```
 
-## Notes
+1. **Landmarks:** 2 x 21 hand points and 33 pose points per frame. Hands are matched to the
+   signer's left/right by the nearest pose wrist.
+2. **Features (162 per frame):** wrist-relative hand shape plus hand location relative to the
+   shoulders, so chin vs chest signs stay distinct.
+3. **Segmentation:** a sign starts when hands are raised or moving, and ends after 0.4 s of rest.
+   Tuned on validation streams (`training/configs/streaming.json`).
+4. **Decision:** the whole sign is classified once. A "no sign yet" class covers rest, partial
+   signs and fidgets; a word is added at 70% confidence or more; otherwise the top 3 are offered.
 
-- This package was prepared for easy zipping and sending to another AI assistant or collaborator.
-- Generated folders like `node_modules` and build outputs were removed to keep the zip smaller and cleaner.
-- Add your training videos under `data/raw/<source>/videos/<LABEL>/` and follow `training/README.md`.
+## Quick start (Windows)
+
+1. Run `start_all.bat`. It creates the Python environment, installs dependencies and starts both servers.
+2. Open http://localhost:3000, then **Communicate -> Start Camera**.
+3. Sign one word from start to finish, then lower your hands. The word is added when the sign ends.
+
+Backend: http://localhost:8000 (`/docs`, `/health`, `/labels`, `/predict`, WebSocket `/stream`).
+Requires Python 3.12+ (tested on 3.14) and Node 20+. An NVIDIA GPU is optional (training only).
+
+## Repository layout
+
+```
+app/
+  frontend/            React + Vite + Tailwind + Three.js app (pages, 3D avatar, MediaPipe tracker,
+                       signRecognizer WebSocket client)
+  backend/
+    mudra_api/         FastAPI service: /predict, /stream, model loading
+    models/            exported models (model.pt + model_card.json with metrics, threshold, licences)
+    tests/             API and streaming tests
+training/
+  src/mudra_ml/        landmark extraction, normalisation, datasets, models, training, evaluation,
+                       streaming (segmenter + recogniser)
+  scripts/             audit, extract, split, train, ablate, evaluate, export, streaming benchmarks
+  configs/             data, experiment and streaming settings
+  tests/               unit and end-to-end tests
+data/                  metadata and splits (raw videos and landmarks are not committed)
+docs/
+  MUDRA_MASTER_PLAN.md full analysis, dataset research, roadmap and dated progress log
+  architecture.md      system architecture
+  planning/            original project review documents
+```
+
+## Training workflow
+
+See `training/README.md`. In short:
+
+```powershell
+app\backend\.venv\Scripts\activate
+python training/scripts/extract_landmarks.py --source own --input data/raw/own
+python training/scripts/make_splits.py --manifests data/metadata/manifest_own.csv --name own
+python training/scripts/train.py --config ablation_combined.yaml --name my_model
+python training/scripts/eval_continuous.py --split data/metadata/splits/<name>/val.csv --tune
+python training/scripts/export_model.py --run experiments/runs/<run> --name <model>
+```
+
+Tests: `pytest training` (44) and `pytest app/backend/tests` (11).
+
+## Data and licences
+
+- **INCLUDE** (Sridhar et al., ACM MM 2020): pose release via AI4Bharat OpenHands, CC-BY-4.0.
+- **Team ISL recordings** (61 words, 101 sentences): provided by the MUDRA team. Source and
+  licence to be confirmed before any public release.
+- Raw videos and extracted landmarks are not committed; see `data/README.md` for the layout.
+
+## Roadmap
+
+Phase 3 (next):
+- add datasets with more signers (FDMSE-ISL, CISLR, pre-training on large pose corpora)
+- run a signer-independent test
+- add few-shot new words from 1-5 example videos
+- add fingerspelling from the alphabet images
+- build an in-app recording tool for the app's missing words
+
+Details are in `docs/MUDRA_MASTER_PLAN.md`.
