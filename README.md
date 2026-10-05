@@ -40,7 +40,7 @@ a word is added once it is recognised twice in a row. Only landmark coordinates 
 browser, never camera images.
 
 Current model: `app/backend/models/isl_mudra_combined_bilstm` — 314 words (INCLUDE 263 +
-61 MUDRA words from `C:\ISLrchive`). Live-streaming test (held-out clips): MUDRA words
+61 MUDRA words from `C:\ISL\archive`). Live-streaming test (held-out clips): MUDRA words
 94.5% correct / 0.6% wrong / 5% no word; INCLUDE 92.6% / 2.3% / 5%. See its
 `model_card.json` for metrics, threshold, data sources and limitations. The earlier
 INCLUDE-only model stays in `models/isl_include_bilstm` (set `MUDRA_MODEL_DIR` to use it).
