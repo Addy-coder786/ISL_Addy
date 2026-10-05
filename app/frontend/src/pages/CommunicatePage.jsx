@@ -19,10 +19,10 @@ import {
   ArrowRightLeft
 } from 'lucide-react'
 import handTracker from '../services/handTracker'
-import pythonRecognizer from '../services/pythonRecognizer'
+import signRecognizer from '../services/signRecognizer'
 import faceExpressionTracker from '../services/faceExpressionTracker'
 import { classifyISLSign } from '../services/islClassifier'
-import { ISL_VOCABULARY_LEXICON, buildMultilingualSentence } from '../services/islDictionary'
+import { ISL_VOCABULARY_LEXICON, buildMultilingualSentence, findISLLexiconItem, readableSign } from '../services/islDictionary'
 import { analyzeExpression, FACE_UNAVAILABLE_EXPRESSION, INITIAL_EXPRESSION } from '../services/expressionAnalyzer'
 import MudraAvatarViewer from '../components/avatar/MudraAvatarViewer'
 
@@ -59,7 +59,10 @@ export default function CommunicatePage() {
   const expressionHistoryRef = useRef([])
   const expressionPendingRef = useRef({ tone: null, count: 0 })
   const smoothedConfidenceRef = useRef(0)
-  const localClassificationRef = useRef({ isUnknown: true })
+  const [modelState, setModelState] = useState({ status: signRecognizer.status, info: null, error: null })
+  const modelOnlineRef = useRef(false)
+  const lastModelSignRef = useRef(null)
+  const lastHandSeenRef = useRef(0)
   const isPausedRef = useRef(isPaused)
   useEffect(() => {
     isPausedRef.current = isPaused
@@ -70,26 +73,49 @@ export default function CommunicatePage() {
     setGeneratedSentence(buildMultilingualSentence(recognizedTokens, selectedLang))
   }, [recognizedTokens, selectedLang])
 
-  useEffect(() => {
-    const enabled = import.meta.env.VITE_PYTHON_RECOGNIZER === 'true'
-    pythonRecognizer.configure({ enabled })
-    pythonRecognizer.onPrediction = (prediction) => {
-      if (!localClassificationRef.current.isUnknown) return
-
-      const confidence = Math.round((prediction.confidence || 0) * 100)
-      setCurrentDetection({
-        sign: prediction.sign || 'UNKNOWN',
-        confidence,
-        isUnknown: confidence < 30,
-        metadata: null
-      })
-    }
-
-    return () => {
-      pythonRecognizer.onPrediction = null
-      pythonRecognizer.configure({ enabled: false })
-    }
+  const commitToken = useCallback((sign) => {
+    setRecognizedTokens((prev) => (prev.length > 0 && prev[prev.length - 1] === sign ? prev : [...prev, sign]))
   }, [])
+
+  // Trained recognition model (backend /predict). Falls back to the rule engine when offline.
+  useEffect(() => {
+    signRecognizer.onStatusChange = (state) => {
+      modelOnlineRef.current = state.status === 'online'
+      setModelState(state)
+    }
+    signRecognizer.onPrediction = (p) => {
+      if (isPausedRef.current) return
+      const top = p.top_k?.[0]
+      const ok = p.status === 'ok'
+      setCurrentDetection({
+        sign: ok ? p.sign : 'UNKNOWN',
+        label: ok ? p.label : null,
+        candidate: top ? top.label : null,
+        confidence: Math.round(p.confidence * 100),
+        isUnknown: !ok,
+        status: p.status,
+        source: 'model',
+        latencyMs: p.roundTripMs,
+        metadata: ok ? findISLLexiconItem(p.sign) : null
+      })
+      // Commit a word once it is recognised confidently in two consecutive windows
+      if (ok) {
+        if (lastModelSignRef.current === p.sign && lastCommittedSignRef.current !== p.sign) {
+          commitToken(p.sign)
+          lastCommittedSignRef.current = p.sign
+        }
+        lastModelSignRef.current = p.sign
+      } else {
+        lastModelSignRef.current = null
+      }
+    }
+    signRecognizer.connect()
+    return () => {
+      signRecognizer.onPrediction = null
+      signRecognizer.onStatusChange = null
+      signRecognizer.reset()
+    }
+  }, [commitToken])
 
   useEffect(() => {
     let active = true
@@ -190,17 +216,37 @@ export default function CommunicatePage() {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-      const primaryHand = results.multiHandLandmarks[0]
-
+    const hasHands = results.multiHandLandmarks && results.multiHandLandmarks.length > 0
+    handTracker.drawPose(ctx, results.poseLandmarks, canvas.width, canvas.height, true)
+    if (hasHands) {
       results.multiHandLandmarks.forEach((landmarks) => {
         handTracker.drawSkeleton(ctx, landmarks, canvas.width, canvas.height, true)
       })
+    }
 
-      const classification = classifyISLSign(primaryHand, results.multiHandLandmarks)
-      localClassificationRef.current = classification
+    // Trained model path: stream landmarks; predictions arrive via signRecognizer.onPrediction
+    if (modelOnlineRef.current) {
+      const now = performance.now()
+      if (hasHands) {
+        lastHandSeenRef.current = now
+      } else if (now - lastHandSeenRef.current > 800) {
+        // Hands lowered: the next sign may repeat the previous word
+        lastCommittedSignRef.current = null
+        lastModelSignRef.current = null
+        signRecognizer.reset()
+        setCurrentDetection((prev) => (prev.status === 'no_hands' ? prev : {
+          sign: 'UNKNOWN', confidence: 0, isUnknown: true, status: 'no_hands', source: 'model', metadata: null
+        }))
+      }
+      signRecognizer.addFrame(results)
+      return
+    }
+
+    // Offline fallback: rule-based hand-shape matching for 8 static signs
+    if (hasHands) {
+      const primaryHand = results.multiHandLandmarks[0]
+      const classification = { ...classifyISLSign(primaryHand, results.multiHandLandmarks), source: 'rules' }
       setCurrentDetection(classification)
-      pythonRecognizer.addFrame(results)
 
       // Buffer commitment on stable hold (14 frames = ~450ms)
       if (!classification.isUnknown && classification.sign !== 'UNKNOWN') {
@@ -225,11 +271,11 @@ export default function CommunicatePage() {
         lastCommittedSignRef.current = null
       }
     } else {
-      localClassificationRef.current = { isUnknown: true }
       setCurrentDetection({
         sign: 'UNKNOWN',
         confidence: 0,
         isUnknown: true,
+        source: 'rules',
         metadata: null
       })
       stableSignRef.current = { sign: null, count: 0 }
@@ -261,6 +307,8 @@ export default function CommunicatePage() {
 
   const handleStopCamera = () => {
     handTracker.stopCamera()
+    signRecognizer.reset()
+    lastModelSignRef.current = null
     faceExpressionTracker.stop()
     setCameraActive(false)
     if (canvasRef.current) {
@@ -319,10 +367,13 @@ export default function CommunicatePage() {
   }
 
   const handleSimulateSign = (v) => {
+    // Manual entry: no recognition happened, so no confidence is shown
     setCurrentDetection({
       sign: v.id,
-      confidence: 94,
+      label: v.label,
+      confidence: null,
       isUnknown: false,
+      source: 'manual',
       metadata: v
     })
     setRecognizedTokens(prev => {
@@ -510,7 +561,13 @@ export default function CommunicatePage() {
 
                 {cameraActive && (
                   <div className="flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 text-xs font-mono text-mudra-peach-300">
-                    <span>Confidence: {currentDetection.confidence}%</span>
+                    <span>
+                      {currentDetection.source === 'model'
+                        ? `Model${currentDetection.latencyMs ? ` · ${currentDetection.latencyMs} ms` : ''}`
+                        : currentDetection.source === 'manual'
+                        ? 'Manual entry'
+                        : `Rules · ${currentDetection.confidence ?? 0}%`}
+                    </span>
                   </div>
                 )}
               </div>
@@ -553,7 +610,9 @@ export default function CommunicatePage() {
             {/* Quick Sign Simulator Chips */}
             <div className="glass-card rounded-3xl p-4 border border-white space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-mudra-indigo-900 font-display">Verified Signs (Hold in camera or click to simulate):</span>
+                <span className="font-bold text-mudra-indigo-900 font-display">
+                  {modelState.status === 'online' ? 'Add a word manually:' : 'Verified Signs (Hold in camera or click to add):'}
+                </span>
                 <span className="text-[10px] text-mudra-indigo-500 font-mono">8 Signs</span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -582,11 +641,21 @@ export default function CommunicatePage() {
                     Detected Sign
                   </span>
                   <span className={`shrink-0 text-[11px] font-mono font-bold px-2.5 py-1 rounded-full border ${
-                    currentDetection.isUnknown
+                    currentDetection.status === 'uncertain'
+                      ? 'bg-amber-100 text-amber-800 border-amber-200'
+                      : currentDetection.isUnknown
                       ? 'bg-gray-100 text-gray-600 border-gray-200'
                       : 'bg-emerald-100 text-emerald-800 border-emerald-200'
                   }`}>
-                    {currentDetection.isUnknown ? 'Threshold < 68%' : `${currentDetection.confidence}% Confidence`}
+                    {currentDetection.source === 'manual'
+                      ? 'Added manually'
+                      : currentDetection.status === 'uncertain'
+                      ? `Uncertain · ${currentDetection.confidence}%`
+                      : currentDetection.status === 'no_hands'
+                      ? 'No hands in view'
+                      : currentDetection.isUnknown
+                      ? (currentDetection.source === 'model' ? 'Waiting for a sign' : 'Below 68% match')
+                      : `${currentDetection.confidence}% confidence`}
                   </span>
                 </div>
 
@@ -594,12 +663,40 @@ export default function CommunicatePage() {
                   <span className={`font-display font-extrabold text-3xl sm:text-4xl tracking-tight leading-none break-words ${
                     currentDetection.isUnknown ? 'text-mudra-indigo-600 italic' : 'text-mudra-indigo-950'
                   }`}>
-                    {currentDetection.isUnknown ? 'UNKNOWN / SCANNING...' : currentDetection.sign}
+                    {currentDetection.isUnknown
+                      ? (currentDetection.status === 'uncertain' ? 'Not sure yet' : 'Scanning...')
+                      : (currentDetection.label || readableSign(currentDetection.sign))}
                   </span>
-                  {currentDetection.metadata && (
-                    <span className="text-2xl">{currentDetection.metadata.emoji}</span>
+                </div>
+                {currentDetection.status === 'uncertain' && currentDetection.candidate && (
+                  <p className="text-xs text-mudra-indigo-600 mt-1">
+                    Closest match: <strong>{currentDetection.candidate}</strong>. Repeat the sign clearly from start to finish.
+                  </p>
+                )}
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+                  <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-mono font-semibold ${
+                    modelState.status === 'online' ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${modelState.status === 'online' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+                    {modelState.status === 'online'
+                      ? `Trained model · ${modelState.info?.num_signs ?? ''} INCLUDE words`
+                      : modelState.status === 'checking'
+                      ? 'Connecting to recognition model...'
+                      : 'Offline: rule-based fallback, 8 signs'}
+                  </span>
+                  {modelState.status !== 'online' && modelState.status !== 'checking' && (
+                    <button
+                      type="button"
+                      onClick={() => signRecognizer.connect()}
+                      className="px-2 py-0.5 rounded-full border border-mudra-lavender-300 text-mudra-lavender-800 font-semibold hover:bg-mudra-lavender-50"
+                    >
+                      Retry connection
+                    </button>
                   )}
                 </div>
+                {modelState.status === 'offline' && modelState.error && (
+                  <p className="text-[11px] text-mudra-indigo-500 mt-1">{modelState.error}</p>
+                )}
               </div>
 
               {/* Committed Sequence Buffer */}
@@ -618,7 +715,7 @@ export default function CommunicatePage() {
                     recognizedTokens.map((token, i) => (
                       <React.Fragment key={i}>
                         <span className="px-2.5 py-1 rounded-lg bg-mudra-indigo-900 text-white font-mono text-xs font-semibold shadow-xs">
-                          {token}
+                          {readableSign(token)}
                         </span>
                         {i < recognizedTokens.length - 1 && (
                           <span className="text-mudra-indigo-400 text-xs font-bold">&rarr;</span>
@@ -627,7 +724,9 @@ export default function CommunicatePage() {
                     ))
                   ) : (
                     <span className="text-xs text-mudra-indigo-400 italic">
-                      Hold a sign steady in camera to commit token
+                      {modelState.status === 'online'
+                        ? 'Sign a word from start to finish; it is added once recognised twice in a row'
+                        : 'Hold a sign steady in camera to commit token'}
                     </span>
                   )}
                 </div>

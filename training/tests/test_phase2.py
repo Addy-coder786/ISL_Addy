@@ -13,7 +13,7 @@ from mudra_ml.datasets.isl_dataset import FeatureConfig, ISLLandmarkDataset, add
 from mudra_ml.evaluation.metrics import compute_metrics, expected_calibration_error, fit_temperature
 from mudra_ml.models.cnn_encoder import CNNEncoder
 from mudra_ml.models.sequence_model import ModelConfig, build_model
-from mudra_ml.preprocessing.landmark_extractor import LandmarkSequence
+from mudra_ml.preprocessing.sequence import LandmarkSequence
 from mudra_ml.training.experiment_config import deep_merge, parse_overrides
 from mudra_ml.training.trainer import run_experiment
 

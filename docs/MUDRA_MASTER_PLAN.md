@@ -239,3 +239,15 @@ Tables: `experiments/ablations/include*_summary.md`. CNN ablations (A, D, E) sti
 Seed check (3 seeds each, full INCLUDE test): BiLSTM without velocity 96.73% ± 0.57 (macro-F1 0.967 ± 0.007, ECE 0.013);
 Transformer 96.45% ± 0.75 (macro-F1 0.966 ± 0.007, ECE 0.018). The difference is inside run-to-run spread: a statistical tie.
 Phase 3 candidate: BiLSTM without velocity (best mean, best calibration); MLP+pool (150k params, 96.5%) as the in-browser/ONNX option.
+
+### 2026-10-05: Phase 3 done (model in the app, INCLUDE vocabulary)
+- Exported `include_C_bilstm_no_velocity` (chosen on validation macro-F1 0.976) to `app/backend/models/isl_include_bilstm`
+  with a model card. "Uncertain" threshold 0.95 chosen on validation: keeps 92.9% of clips at 98.6% accuracy.
+- FastAPI `mudra_api`: `/health`, `/labels`, `/model`, `/predict`; reuses `mudra_ml` feature code. Through the API the
+  816 INCLUDE test clips score 97.06% top-1 (identical to offline evaluation); CPU inference 15 ms median.
+- Browser moved from legacy `@mediapipe/hands` to MediaPipe Tasks hands + pose (local models, GPU with CPU fallback).
+- Communicate uses the model (rule engine only as offline fallback); shows Uncertain / no-hands states, latency, and
+  commits a word after two consecutive confident windows. Removed a hard-coded "94% confidence" on manual chips.
+- Streaming replay of 8 held-out clips through the browser client: 7/8 committed correctly, 0 wrong commits, 25 ms median round trip.
+- Headless-browser check: Communicate, Practice, Progress load and track with no console errors.
+- Not yet verified: live signing by a real person in front of a webcam (needs a human); expect lower accuracy than INCLUDE.

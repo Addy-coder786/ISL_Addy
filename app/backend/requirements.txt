@@ -28,7 +28,11 @@ tensorboard==2.21.0
 tqdm==4.70.1
 PyYAML==6.0.3
 
+# MUDRA ML package (feature pipeline shared by training and the API)
+-e ../../training
+
 # Dataset download & dev tooling
 kaggle==2.2.4
 pytest==9.1.1
+httpx==0.28.1
 ruff==0.16.10

@@ -14,6 +14,15 @@
 
 export const ISLRTC_DICTIONARY_URL = 'https://islrtc.nic.in/isl-dictionary/'
 
+/**
+ * Human-readable form of a sign ID, e.g. 'GOOD_MORNING' -> 'Good morning'.
+ */
+export function readableSign(signId) {
+  if (!signId) return ''
+  const words = signId.replace(/_/g, ' ').toLowerCase()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
 export const ISL_VOCABULARY_LEXICON = [
   {
     id: 'HELLO',
@@ -568,6 +577,6 @@ export function buildMultilingualSentence(tokens, lang = 'en') {
 
   // 2. Preserve meaning for unsupported combinations without inventing grammar.
   return normalizedTokens
-    .map((token) => CANONICAL_SEQUENCE_DICTIONARY[token]?.[lang] || token)
+    .map((token) => CANONICAL_SEQUENCE_DICTIONARY[token]?.[lang] || readableSign(token))
     .join(' ')
 }

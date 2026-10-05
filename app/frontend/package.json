@@ -9,8 +9,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@mediapipe/camera_utils": "^0.3.1675466862",
-    "@mediapipe/hands": "^0.4.1675469240",
     "@mediapipe/tasks-vision": "^1.0.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.475.0",

@@ -37,6 +37,9 @@ Combine sources by passing several manifests to `make_splits.py`.
 | Change settings | `... --set data.split_dir=data/metadata/splits/include model.temporal=transformer train.epochs=200` |
 | Ablation table | `python training/scripts/run_ablation.py --config ablation_landmarks.yaml --tag include50` |
 | Watch training | `tensorboard --logdir experiments/runs` |
+| Re-score saved runs | `python training/scripts/evaluate.py experiments/runs/include_*` |
+| Comparison table | `python training/scripts/summarize_runs.py --glob "include_*" --title "INCLUDE"` |
+| Ship a model to the API | `python training/scripts/export_model.py --run experiments/runs/<run> --name <model_name>` |
 
 Models (`mudra_ml/models/sequence_model.py`): per-frame **Landmark MLP** -> temporal block
 (`none` = mean pooling, `bilstm`, `transformer`) -> attention pooling -> classifier. An optional

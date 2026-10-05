@@ -1,8 +1,21 @@
 /**
  * MUDRA Hand Tracker Service
- * Wrapper around MediaPipe Hands with browser webcam management,
- * graceful fallback loading, and high-performance canvas landmark rendering.
+ * MediaPipe Tasks (HandLandmarker + PoseLandmarker) on the webcam, matching the
+ * landmark pipeline used to train the recognition model. Models and WASM are served
+ * locally from /models and /wasm, so no camera data or model download leaves the device.
+ *
+ * Results passed to onResults:
+ *   multiHandLandmarks  Array<Array<{x,y,z}>>   up to 2 hands, 21 points each
+ *   multiHandedness     Array<{label, score}>   MediaPipe labels (assume a mirrored image)
+ *   poseLandmarks       Array<{x,y,z,visibility}> | null   33 body points
+ *   width, height       video size in pixels
  */
+
+import { FilesetResolver, HandLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision'
+
+const WASM_PATH = '/wasm'
+const HAND_MODEL = '/models/hand_landmarker.task'
+const POSE_MODEL = '/models/pose_landmarker_lite.task'
 
 // MediaPipe Hand Connection Pairs
 export const HAND_CONNECTIONS = [
@@ -20,83 +33,62 @@ export const HAND_CONNECTIONS = [
   [5, 9], [9, 13], [13, 17]
 ]
 
+// Upper-body pose connections (shoulders, arms, face outline)
+export const POSE_CONNECTIONS = [
+  [11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24]
+]
+
+async function createWithFallback(factory, vision, options) {
+  try {
+    return await factory.createFromOptions(vision, { ...options, baseOptions: { ...options.baseOptions, delegate: 'GPU' } })
+  } catch (gpuError) {
+    console.warn('GPU delegate unavailable, falling back to CPU:', gpuError)
+    return factory.createFromOptions(vision, { ...options, baseOptions: { ...options.baseOptions, delegate: 'CPU' } })
+  }
+}
+
 class HandTrackerService {
   constructor() {
-    this.hands = null
+    this.handLandmarker = null
+    this.poseLandmarker = null
     this.videoElement = null
     this.stream = null
     this.isTracking = false
     this.animationFrameId = null
     this.onResultsCallback = null
-    this.isInitialized = false
     this.initializationPromise = null
+    this.lastVideoTime = -1
+    this.lastTimestamp = 0
   }
 
   /**
-   * Initializes MediaPipe Hands solution
+   * Loads the hand and pose landmarkers once (shared by Practice and Communicate).
    */
   async initialize() {
-    if (this.isInitialized && this.hands) return this.hands
+    if (this.handLandmarker && this.poseLandmarker) return this
     if (this.initializationPromise) return this.initializationPromise
 
-    this.initializationPromise = new Promise(async (resolve, reject) => {
-      try {
-        let HandsConstructor = null
-
-        // Try importing from @mediapipe/hands npm package
-        try {
-          const mpHands = await import('@mediapipe/hands')
-          HandsConstructor = mpHands.Hands || window.Hands
-        } catch (err) {
-          console.warn('Direct import of @mediapipe/hands failed, attempting global/CDN fallback', err)
-        }
-
-        // If not found in module import, check window or load from CDN script
-        if (!HandsConstructor && typeof window !== 'undefined') {
-          if (window.Hands) {
-            HandsConstructor = window.Hands
-          } else {
-            // Dynamically load script from unpkg/jsdelivr
-            await new Promise((res, rej) => {
-              const script = document.createElement('script')
-              script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js'
-              script.crossOrigin = 'anonymous'
-              script.onload = () => res()
-              script.onerror = (e) => rej(e)
-              document.head.appendChild(script)
-            })
-            HandsConstructor = window.Hands
-          }
-        }
-
-        if (!HandsConstructor) {
-          throw new Error('MediaPipe Hands library could not be loaded.')
-        }
-
-        const hands = new HandsConstructor({
-          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-        })
-
-        hands.setOptions({
-          maxNumHands: 2,
-          modelComplexity: 1,
-          minDetectionConfidence: 0.5,
-          minTrackingConfidence: 0.5
-        })
-
-        hands.onResults((results) => {
-          if (this.onResultsCallback) {
-            this.onResultsCallback(results)
-          }
-        })
-
-        this.hands = hands
-        this.isInitialized = true
-        resolve(hands)
-      } catch (error) {
-        console.error('Failed to initialize MediaPipe Hands:', error)
-        reject(error)
-      }
+    this.initializationPromise = (async () => {
+      const vision = await FilesetResolver.forVisionTasks(WASM_PATH)
+      this.handLandmarker = await createWithFallback(HandLandmarker, vision, {
+        baseOptions: { modelAssetPath: HAND_MODEL },
+        runningMode: 'VIDEO',
+        numHands: 2,
+        minHandDetectionConfidence: 0.5,
+        minHandPresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      })
+      this.poseLandmarker = await createWithFallback(PoseLandmarker, vision, {
+        baseOptions: { modelAssetPath: POSE_MODEL },
+        runningMode: 'VIDEO',
+        numPoses: 1,
+        minPoseDetectionConfidence: 0.5
+      })
+      return this
+    })().catch((error) => {
+      this.initializationPromise = null
+      console.error('Failed to initialize MediaPipe landmarkers:', error)
+      throw error
     })
 
     return this.initializationPromise
@@ -107,55 +99,58 @@ class HandTrackerService {
    */
   async startCamera(videoElement, onResults) {
     if (!videoElement) throw new Error('Video element is required')
-    
+
     this.videoElement = videoElement
     this.onResultsCallback = onResults
 
     await this.initialize()
 
-    // Request camera permissions
-    try {
-      const constraints = {
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: 'user'
-        },
-        audio: false
-      }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+      audio: false
+    })
+    this.stream = stream
+    this.videoElement.srcObject = stream
+    await this.videoElement.play()
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints)
-      this.stream = stream
-      this.videoElement.srcObject = stream
-      await this.videoElement.play()
-
-      this.isTracking = true
-      this._processVideoLoop()
-
-      return true
-    } catch (err) {
-      console.error('Camera access error:', err)
-      throw err
-    }
+    this.isTracking = true
+    this.lastVideoTime = -1
+    this._processVideoLoop()
+    return true
   }
 
   /**
-   * Continuous processing loop
+   * Continuous processing loop: one hand + pose inference per new video frame.
    */
-  async _processVideoLoop() {
-    if (!this.isTracking || !this.videoElement || !this.hands) return
+  _processVideoLoop() {
+    if (!this.isTracking || !this.videoElement) return
 
-    if (this.videoElement.readyState >= 2 && !this.videoElement.paused) {
+    const video = this.videoElement
+    if (video.readyState >= 2 && !video.paused && video.currentTime !== this.lastVideoTime) {
+      this.lastVideoTime = video.currentTime
+      // Landmarkers require strictly increasing timestamps
+      const timestamp = Math.max(Math.round(performance.now()), this.lastTimestamp + 1)
+      this.lastTimestamp = timestamp
       try {
-        await this.hands.send({ image: this.videoElement })
+        const hands = this.handLandmarker.detectForVideo(video, timestamp)
+        const pose = this.poseLandmarker.detectForVideo(video, timestamp)
+        this.onResultsCallback?.({
+          multiHandLandmarks: hands.landmarks || [],
+          multiHandedness: (hands.handedness || hands.handednesses || []).map((categories) => ({
+            label: categories?.[0]?.categoryName,
+            score: categories?.[0]?.score ?? 0
+          })),
+          poseLandmarks: pose.landmarks?.[0] || null,
+          width: video.videoWidth,
+          height: video.videoHeight,
+          timestamp
+        })
       } catch (err) {
         console.warn('Frame processing exception:', err)
       }
     }
 
-    if (this.isTracking) {
-      this.animationFrameId = requestAnimationFrame(() => this._processVideoLoop())
-    }
+    this.animationFrameId = requestAnimationFrame(() => this._processVideoLoop())
   }
 
   /**
@@ -177,6 +172,32 @@ class HandTrackerService {
     if (this.videoElement) {
       this.videoElement.srcObject = null
     }
+  }
+
+  /**
+   * Renders the upper-body pose as a faint guide behind the hands.
+   */
+  drawPose(ctx, poseLandmarks, width, height, mirror = true) {
+    if (!ctx || !poseLandmarks || poseLandmarks.length < 25) return
+
+    ctx.save()
+    if (mirror) {
+      ctx.translate(width, 0)
+      ctx.scale(-1, 1)
+    }
+    ctx.lineWidth = 2.5
+    ctx.lineCap = 'round'
+    ctx.strokeStyle = 'rgba(253, 186, 116, 0.55)'
+    POSE_CONNECTIONS.forEach(([i, j]) => {
+      const p1 = poseLandmarks[i]
+      const p2 = poseLandmarks[j]
+      if (!p1 || !p2 || (p1.visibility ?? 1) < 0.5 || (p2.visibility ?? 1) < 0.5) return
+      ctx.beginPath()
+      ctx.moveTo(p1.x * width, p1.y * height)
+      ctx.lineTo(p2.x * width, p2.y * height)
+      ctx.stroke()
+    })
+    ctx.restore()
   }
 
   /**

@@ -14,8 +14,8 @@ from mudra_ml import schema
 from mudra_ml.data.manifest import read_manifest
 from mudra_ml.datasets.augment import AugmentConfig, affine_jitter, temporal_window
 from mudra_ml.preprocessing.frame_sampler import sample_indices
-from mudra_ml.preprocessing.landmark_extractor import LandmarkSequence, load_sequence
 from mudra_ml.preprocessing.normalization import build_frame_features
+from mudra_ml.preprocessing.sequence import LandmarkSequence, load_sequence
 
 # Coordinate blocks inside a frame feature vector and the mask column that gates each one.
 _LEFT = slice(0, schema.HAND_SHAPE_DIM + schema.HAND_LOCATION_DIM)

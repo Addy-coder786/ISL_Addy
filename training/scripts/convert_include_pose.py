@@ -29,7 +29,7 @@ from tqdm import tqdm
 from mudra_ml import schema
 from mudra_ml.config import load_config, project_path
 from mudra_ml.data.manifest import ManifestRow, normalize_label, stable_id, write_manifest
-from mudra_ml.preprocessing.landmark_extractor import LandmarkSequence
+from mudra_ml.preprocessing.sequence import LandmarkSequence
 
 DEFAULT_ROOT = Path("data/external/include_pose/INCLUDE")
 POSE = slice(0, 33)

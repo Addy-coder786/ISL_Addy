@@ -1,32 +1,18 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
+"""MUDRA backend entry point.
 
-app = FastAPI(title="MUDRA API", version="0.1.0")
+    python main.py            (from app/backend, with the .venv active)
+    uvicorn main:app --reload
+"""
 
+import logging
 
-class HealthResponse(BaseModel):
-    status: str
-    message: str
+from mudra_api.app import create_app
 
-
-@app.get("/health", response_model=HealthResponse)
-def health_check() -> HealthResponse:
-    return {
-        "status": "ok",
-        "message": "MUDRA unified backend is running.",
-    }
-
-
-@app.get("/")
-def root() -> dict:
-    return {
-        "project": "MUDRA",
-        "mode": "unified",
-        "status": "initialized",
-    }
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+app = create_app()
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(app, host="127.0.0.1", port=8000)
