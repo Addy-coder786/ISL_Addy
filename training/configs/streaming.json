@@ -1,0 +1,12 @@
+{
+  "raise_y": 1.0,
+  "speed": 2.0,
+  "on_s": 0.05,
+  "off_s": 0.4,
+  "pad_pre_s": 0.3,
+  "pad_post_s": 0.2,
+  "min_sign_s": 0.3,
+  "max_sign_s": 6.0,
+  "buffer_s": 12.0,
+  "commit_threshold": 0.8
+}

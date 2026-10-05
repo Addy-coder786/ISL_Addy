@@ -265,3 +265,15 @@ Phase 3 candidate: BiLSTM without velocity (best mean, best calibration); MLP+po
   Browser-client replay at 30 fps: 23/24 correct, 0 wrong.
 - Sentence model (101 phrases, ~4.5 clips per class): 57% top-1, 76% top-5; transfer from the word model did not help
   (51.6%, within noise). Needs more recordings per sentence.
+
+### 2026-10-05: Real-time Phase 1 done (sign start/end detection)
+- `mudra_ml/streaming.py`: SignSegmenter (hands raised or moving -> resting / signing / ended, with hysteresis)
+  classifies each complete sign once; shared by the API WebSocket `/stream` and the benchmark.
+- `eval_continuous.py`: continuous streams of held-out signs with transitions and idle stretches; settings tuned on
+  validation (raise 1.0 shoulder widths, speed 2.0/s, start 0.05 s, end 0.4 s, whole-sign threshold 0.8) ->
+  `training/configs/streaming.json`.
+- Held-out test streams, old sliding window -> new segmenter: INCLUDE correct 67.9% -> 83.3%, wrong 2.7% -> 1.6%,
+  extra words 0.017 -> 0 per sign; team words correct 92.3% -> 95.0%, wrong 0% -> 0%, extra 0.006 -> 0;
+  no false words during idle stretches.
+- Browser client over WebSocket (replay at true frame rate): 21/24 correct, 0 wrong, 3 left uncertain.
+- UI shows "Signing…" while a sign is in progress; a word is added once when the sign ends.

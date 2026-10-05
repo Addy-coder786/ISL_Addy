@@ -95,23 +95,19 @@ export default function CommunicatePage() {
         isUnknown: !ok,
         status: p.status,
         source: 'model',
-        latencyMs: p.roundTripMs,
         metadata: ok ? findISLLexiconItem(p.sign) : null
       })
-      // Commit a word once it is recognised confidently in two consecutive windows
-      if (ok) {
-        if (lastModelSignRef.current === p.sign && lastCommittedSignRef.current !== p.sign) {
-          commitToken(p.sign)
-          lastCommittedSignRef.current = p.sign
-        }
-        lastModelSignRef.current = p.sign
-      } else {
-        lastModelSignRef.current = null
-      }
+      // The server classified one complete sign (start -> end), so a confident result is committed once
+      if (ok) commitToken(p.sign)
+    }
+    signRecognizer.onActivity = (state) => {
+      if (isPausedRef.current || state !== 'signing') return
+      setCurrentDetection({ sign: 'UNKNOWN', confidence: 0, isUnknown: true, status: 'signing', source: 'model', metadata: null })
     }
     signRecognizer.connect()
     return () => {
       signRecognizer.onPrediction = null
+      signRecognizer.onActivity = null
       signRecognizer.onStatusChange = null
       signRecognizer.reset()
     }
@@ -230,11 +226,8 @@ export default function CommunicatePage() {
       if (hasHands) {
         lastHandSeenRef.current = now
       } else if (now - lastHandSeenRef.current > 800) {
-        // Hands lowered: the next sign may repeat the previous word
-        lastCommittedSignRef.current = null
-        lastModelSignRef.current = null
-        signRecognizer.reset()
-        setCurrentDetection((prev) => (prev.status === 'no_hands' ? prev : {
+        // Hands lowered for a while: show the resting state (segmentation itself runs on the server)
+        setCurrentDetection((prev) => (prev.status === 'no_hands' || prev.status === 'ok' ? prev : {
           sign: 'UNKNOWN', confidence: 0, isUnknown: true, status: 'no_hands', source: 'model', metadata: null
         }))
       }
@@ -651,6 +644,8 @@ export default function CommunicatePage() {
                       ? 'Added manually'
                       : currentDetection.status === 'uncertain'
                       ? `Uncertain · ${currentDetection.confidence}%`
+                      : currentDetection.status === 'signing'
+                      ? 'Signing…'
                       : currentDetection.status === 'no_hands'
                       ? 'No hands in view'
                       : currentDetection.isUnknown
@@ -664,7 +659,7 @@ export default function CommunicatePage() {
                     currentDetection.isUnknown ? 'text-mudra-indigo-600 italic' : 'text-mudra-indigo-950'
                   }`}>
                     {currentDetection.isUnknown
-                      ? (currentDetection.status === 'uncertain' ? 'Not sure yet' : 'Scanning...')
+                      ? (currentDetection.status === 'uncertain' ? 'Not sure yet' : currentDetection.status === 'signing' ? 'Signing…' : 'Scanning...')
                       : (currentDetection.label || readableSign(currentDetection.sign))}
                   </span>
                 </div>
@@ -725,7 +720,7 @@ export default function CommunicatePage() {
                   ) : (
                     <span className="text-xs text-mudra-indigo-400 italic">
                       {modelState.status === 'online'
-                        ? 'Sign a word from start to finish; it is added once recognised twice in a row'
+                        ? 'Sign a word from start to finish, then lower your hands; it is added when the sign ends'
                         : 'Hold a sign steady in camera to commit token'}
                     </span>
                   )}

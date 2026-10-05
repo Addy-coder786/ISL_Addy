@@ -1,28 +1,22 @@
 /**
  * MUDRA Sign Recognizer client
  *
- * Streams a rolling window of MediaPipe landmarks to the backend model (/predict) and
- * reports predictions. Only landmark coordinates are sent, never camera images.
- *
- * The model was trained on whole isolated signs, so the window (about 4 s) should cover
- * one sign from start to finish. Requests are skipped while no hands are visible.
+ * Streams every tracked frame's landmarks to the backend over a WebSocket (/stream).
+ * The server detects when a sign starts and ends (resting -> signing -> ended) and
+ * classifies the whole sign once, so a word is never committed from one or two frames.
+ * Only landmark coordinates are sent, never camera images.
  *
  * Configure with VITE_API_URL (backend address) and VITE_SIGN_MODEL=off to disable.
  */
 
 const API_BASE_URL = import.meta.env?.VITE_API_URL || 'http://localhost:8000'
 const MODE = import.meta.env?.VITE_SIGN_MODEL || 'auto'
-
-const WINDOW_MS = 4000 // chosen on validation streaming tests (4 s beat 2.5 s; 5 s gave no reliable gain)
-const MIN_FRAMES = 12
-const MAX_FRAMES_SENT = 48
-const REQUEST_INTERVAL_MS = 250
-const MIN_HAND_FRAME_SHARE = 0.4
+const WS_URL = API_BASE_URL.replace(/^http/, 'ws') + '/stream'
 const HEALTH_TIMEOUT_MS = 2500
 
 const round = (v) => Math.round(v * 1e4) / 1e4
 
-function toFrame(results) {
+function toFrame(results, t) {
   const hands = (results.multiHandLandmarks || []).map((landmarks, i) => ({
     landmarks: landmarks.map((p) => [round(p.x), round(p.y), round(p.z ?? 0)]),
     handedness: results.multiHandedness?.[i]?.label ?? null,
@@ -31,13 +25,7 @@ function toFrame(results) {
   const pose = results.poseLandmarks
     ? results.poseLandmarks.map((p) => [round(p.x), round(p.y), round(p.z ?? 0), round(p.visibility ?? 1)])
     : null
-  return { t: performance.now(), hands, pose }
-}
-
-function evenlySpaced(items, maxCount) {
-  if (items.length <= maxCount) return items
-  const step = (items.length - 1) / (maxCount - 1)
-  return Array.from({ length: maxCount }, (_, i) => items[Math.round(i * step)])
+  return { type: 'frame', t, hands, pose }
 }
 
 class SignRecognizer {
@@ -45,11 +33,10 @@ class SignRecognizer {
     this.status = MODE === 'off' ? 'disabled' : 'idle' // idle | checking | online | offline | disabled
     this.info = null
     this.error = null
-    this.frames = []
-    this.size = { width: 640, height: 480 }
-    this.inFlight = false
-    this.lastRequestAt = 0
-    this.onPrediction = null
+    this.ws = null
+    this.started = false
+    this.onPrediction = null // whole-sign result when a sign ends
+    this.onActivity = null // 'signing' when a sign starts, 'idle' after it ends
     this.onStatusChange = null
   }
 
@@ -59,7 +46,7 @@ class SignRecognizer {
     this.onStatusChange?.({ status, info: this.info, error })
   }
 
-  /** Checks the backend once; call again to retry after starting the backend. */
+  /** Checks the backend; call again to retry after starting it. */
   async connect() {
     if (MODE === 'off') {
       this._setStatus('disabled')
@@ -69,8 +56,7 @@ class SignRecognizer {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS)
     try {
-      const response = await fetch(`${API_BASE_URL}/health`, { signal: controller.signal })
-      const health = await response.json()
+      const health = await (await fetch(`${API_BASE_URL}/health`, { signal: controller.signal })).json()
       this.info = health
       if (health.model_loaded) this._setStatus('online')
       else this._setStatus('offline', health.error || 'The backend is running but no model is loaded.')
@@ -82,51 +68,42 @@ class SignRecognizer {
     return this.status
   }
 
-  reset() {
-    this.frames = []
+  _open(width, height) {
+    const ws = new WebSocket(WS_URL)
+    this.ws = ws
+    this.started = false
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'start', width, height }))
+      this.started = true
+    }
+    ws.onmessage = (msg) => {
+      const ev = JSON.parse(msg.data)
+      if (ev.event === 'sign_started') this.onActivity?.('signing')
+      else if (ev.event === 'too_short') this.onActivity?.('idle')
+      else if (ev.event === 'sign_ended') {
+        this.onActivity?.('idle')
+        this.onPrediction?.(ev.result)
+      } else if (ev.event === 'error') this._setStatus('offline', ev.detail)
+    }
+    ws.onclose = () => {
+      if (this.ws === ws) this.ws = null
+    }
+    ws.onerror = () => this._setStatus('offline', `Lost connection to ${WS_URL}.`)
   }
 
-  /** Feed every tracker result; requests are throttled and skipped without hands. */
+  /** Feed every tracker result. */
   addFrame(results) {
     if (this.status !== 'online') return
-    if (results.width && results.height) this.size = { width: results.width, height: results.height }
-
-    const now = performance.now()
-    this.frames.push(toFrame(results))
-    while (this.frames.length && now - this.frames[0].t > WINDOW_MS) this.frames.shift()
-
-    if (this.inFlight || now - this.lastRequestAt < REQUEST_INTERVAL_MS || this.frames.length < MIN_FRAMES) return
-    const handShare = this.frames.filter((f) => f.hands.length > 0).length / this.frames.length
-    if (handShare < MIN_HAND_FRAME_SHARE) return
-
-    this.lastRequestAt = now
-    this._predict(evenlySpaced(this.frames, MAX_FRAMES_SENT))
+    if (!this.ws) this._open(results.width || 640, results.height || 480)
+    if (!this.started || this.ws.readyState !== WebSocket.OPEN) return
+    this.ws.send(JSON.stringify(toFrame(results, performance.now() / 1000)))
   }
 
-  async _predict(frames) {
-    this.inFlight = true
-    const started = performance.now()
-    try {
-      const response = await fetch(`${API_BASE_URL}/predict`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          frames: frames.map(({ hands, pose }) => ({ hands, pose })),
-          width: this.size.width,
-          height: this.size.height,
-          mirrored: false,
-          top_k: 3
-        })
-      })
-      if (!response.ok) throw new Error(`Recognition request failed (${response.status})`)
-      const prediction = await response.json()
-      prediction.roundTripMs = Math.round(performance.now() - started)
-      this.onPrediction?.(prediction)
-    } catch (error) {
-      this._setStatus('offline', error.message || 'Recognition server stopped responding.')
-    } finally {
-      this.inFlight = false
-    }
+  /** Ends the live session (camera stopped). */
+  reset() {
+    this.ws?.close()
+    this.ws = null
+    this.started = false
   }
 }
 

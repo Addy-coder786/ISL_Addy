@@ -125,3 +125,63 @@ def test_combined_model_waits_for_the_whole_sign():
         waiting += body["status"] in ("no_sign", "uncertain", "no_hands")
         assert all(not cand["sign"].startswith("_") for cand in body["top_k"])
     assert waiting >= 8
+
+
+@pytest.mark.skipif(not (COMBINED_DIR / "model.pt").exists() or not COMBINED_TEST.exists(), reason="combined model/data absent")
+def test_stream_segments_and_recognises_a_sign():
+    c = TestClient(create_app(Settings(model_dir=COMBINED_DIR, device="cpu")))
+    with COMBINED_TEST.open(newline="", encoding="utf-8") as f:
+        row = next(r for r in csv.DictReader(f) if r["source"] == "islwords" and float(r["any_hand_rate"]) > 0.9)
+    req = clip_to_request(PROJECT_ROOT / row["landmarks_path"])
+    rest = [{"hands": [], "pose": req["frames"][0]["pose"]}] * 30  # 1 s of resting before and after
+    frames = rest + req["frames"] + rest
+    # Expected events straight from the shared Python implementation
+    from mudra_ml.config import project_path as pp
+    from mudra_ml.preprocessing.sequence import assign_hands
+    from mudra_ml.streaming import (
+        Frame,
+        ModelBundle,
+        SegmenterConfig,
+        StreamingRecognizer,
+    )
+
+    local = StreamingRecognizer(ModelBundle(COMBINED_DIR), SegmenterConfig.load(pp("training/configs/streaming.json")),
+                                req["width"], req["height"])
+    expected = []
+    for i, fr in enumerate(frames):
+        pose = np.asarray(fr["pose"], np.float32) if fr["pose"] else None
+        hands, present, _ = assign_hands([np.asarray(h["landmarks"], np.float32) for h in fr["hands"]],
+                                         ["" for _ in fr["hands"]], [1.0 for _ in fr["hands"]], pose, False)
+        ev = local.push(Frame(i / 30, hands, present, pose if pose is not None else np.zeros((33, 4), np.float32), pose is not None))
+        if ev:
+            expected.append(ev)
+    assert [e["event"] for e in expected][-1] == "sign_ended"
+    assert expected[-1]["result"]["status"] == "ok" and expected[-1]["result"]["sign"] == row["label"]
+
+    with c.websocket_connect("/stream") as ws:
+        ws.send_json({"type": "start", "width": req["width"], "height": req["height"]})
+        for i, fr in enumerate(frames):
+            ws.send_json({"type": "frame", "t": i / 30, **fr})
+        got = [ws.receive_json() for _ in expected]
+    assert [g["event"] for g in got] == [e["event"] for e in expected]
+    assert got[-1]["result"]["sign"] == row["label"] and got[-1]["result"]["label"]
+
+
+def test_segmenter_states():
+    from mudra_ml.streaming import Frame, SegmenterConfig, SignSegmenter
+
+    seg = SignSegmenter(SegmenterConfig(on_s=0.1, off_s=0.2, min_sign_s=0.2, pad_pre_s=0, pad_post_s=0), 640, 480)
+    pose = np.zeros((33, 4), np.float32)
+    pose[11], pose[12] = [0.6, 0.5, 0, 1], [0.4, 0.5, 0, 1]
+    hand_up = np.zeros((2, 21, 3), np.float32)
+    hand_up[1, :, :2] = [0.5, 0.45]  # wrist above the shoulder line
+    events = []
+    for i in range(90):
+        t = i / 30
+        signing = 30 <= i < 60
+        present = np.array([False, signing])
+        ev, segment = seg.push(Frame(t, hand_up if signing else np.zeros_like(hand_up), present, pose, True))
+        if ev:
+            events.append((ev, round(t, 2), None if segment is None else segment.hand_present.shape[0]))
+    assert [e[0] for e in events] == ["sign_started", "sign_ended"]
+    assert 1.0 <= events[0][1] <= 1.2 and events[1][1] <= 2.3
