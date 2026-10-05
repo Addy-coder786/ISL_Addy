@@ -4,7 +4,7 @@
  * Streams a rolling window of MediaPipe landmarks to the backend model (/predict) and
  * reports predictions. Only landmark coordinates are sent, never camera images.
  *
- * The model was trained on whole isolated signs, so the window (about 2.5 s) should cover
+ * The model was trained on whole isolated signs, so the window (about 4 s) should cover
  * one sign from start to finish. Requests are skipped while no hands are visible.
  *
  * Configure with VITE_API_URL (backend address) and VITE_SIGN_MODEL=off to disable.
@@ -13,7 +13,7 @@
 const API_BASE_URL = import.meta.env?.VITE_API_URL || 'http://localhost:8000'
 const MODE = import.meta.env?.VITE_SIGN_MODEL || 'auto'
 
-const WINDOW_MS = 2500
+const WINDOW_MS = 4000 // chosen on validation streaming tests (4 s beat 2.5 s; 5 s gave no reliable gain)
 const MIN_FRAMES = 12
 const MAX_FRAMES_SENT = 48
 const REQUEST_INTERVAL_MS = 250

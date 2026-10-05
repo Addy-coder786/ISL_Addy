@@ -16,7 +16,7 @@ import traceback
 from datetime import datetime
 
 from mudra_ml.config import project_path
-from mudra_ml.training.experiment_config import deep_merge, load_yaml, parse_overrides, resolve
+from mudra_ml.training.experiment_config import ablation_base, deep_merge, load_yaml, parse_overrides
 from mudra_ml.training.trainer import run_experiment
 
 COLUMNS = ["variant", "temporal", "params", "test_accuracy", "test_top5", "test_macro_f1", "test_ece", "val_macro_f1", "best_epoch", "minutes", "run_dir"]
@@ -31,7 +31,7 @@ def main() -> None:
     args = parser.parse_args()
 
     spec = load_yaml(args.config)
-    base = deep_merge(resolve(spec["base"]), parse_overrides(args.set))
+    base = deep_merge(ablation_base(spec), parse_overrides(args.set))
     variants = [v for v in spec["variants"] if not args.only or v["name"] in args.only]
 
     rows = []

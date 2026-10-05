@@ -167,3 +167,43 @@ def test_mirror_augmentation_changes_features_and_is_off_by_default(split_dir):
     # synthetic signer uses the right hand; mirrored copy must show it in the left-hand slot (mask column -3)
     left_mask = schema.FRAME_FEATURE_DIM - 3
     assert xb[:, left_mask].max() == 0 and xa[:, left_mask].min() > 0
+
+
+def test_ablation_shared_settings_are_applied():
+    from mudra_ml.training.experiment_config import ablation_base, load_yaml
+
+    for name, split in (("ablation_sentences.yaml", "islsentences"), ("ablation_combined.yaml", "combined_words")):
+        base = ablation_base(load_yaml(name))
+        assert base["data"]["split_dir"].endswith(split)
+        assert "lr" in base["train"]  # still inherits base.yaml
+    assert ablation_base(load_yaml("ablation_combined.yaml"))["features"]["use_velocity"] is False
+    assert ablation_base(load_yaml("ablation_sentences.yaml"))["train"]["epochs"] == 200
+
+
+def test_init_from_copies_encoder_but_not_head(tmp_path):
+    from mudra_ml.training.trainer import init_from_checkpoint
+
+    src = build_model(ModelConfig(input_dim=40, num_classes=7, lstm_hidden=16))
+    torch.save({"model_state": src.state_dict()}, tmp_path / "best.pt")
+    dst = build_model(ModelConfig(input_dim=40, num_classes=3, lstm_hidden=16))
+    n = init_from_checkpoint(dst, tmp_path)
+    assert n > 0
+    for k, v in src.state_dict().items():
+        if k.startswith("head.2"):
+            assert dst.state_dict()[k].shape != v.shape  # different class count: head not copied
+        elif not k.startswith("head."):
+            assert torch.equal(dst.state_dict()[k], v)
+
+
+def test_background_samples_use_background_label(split_dir):
+    from mudra_ml.datasets.isl_dataset import BACKGROUND_LABEL, BackgroundConfig
+
+    classes = [*json.loads((split_dir / "classes.json").read_text()), BACKGROUND_LABEL]
+    cfg = FeatureConfig(seq_len=8)
+    ds = ISLLandmarkDataset(split_dir / "train.csv", classes, cfg, AugmentConfig(), seed=0,
+                            background=BackgroundConfig(prob=1.0))
+    labels = {ds[i][1] for i in range(10)}
+    assert labels == {classes.index(BACKGROUND_LABEL)}
+    assert ds[0][0].shape == (8, cfg.feature_dim)
+    with pytest.raises(ValueError):
+        ISLLandmarkDataset(split_dir / "train.csv", classes[:-1], cfg, background=BackgroundConfig(prob=0.5))

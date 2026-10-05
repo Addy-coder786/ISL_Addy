@@ -24,7 +24,13 @@ from torch.utils.tensorboard import SummaryWriter
 
 from mudra_ml.config import project_path
 from mudra_ml.datasets.augment import AugmentConfig
-from mudra_ml.datasets.isl_dataset import FeatureConfig, ISLLandmarkDataset, load_classes
+from mudra_ml.datasets.isl_dataset import (
+    BACKGROUND_LABEL,
+    BackgroundConfig,
+    FeatureConfig,
+    ISLLandmarkDataset,
+    load_classes,
+)
 from mudra_ml.evaluation.evaluate import evaluate_run, predict
 from mudra_ml.evaluation.metrics import compute_metrics
 from mudra_ml.models.sequence_model import ModelConfig, build_model, count_parameters
@@ -56,6 +62,24 @@ def _class_weights(labels: np.ndarray, num_classes: int) -> torch.Tensor:
     return torch.tensor(weights, dtype=torch.float32)
 
 
+def init_from_checkpoint(model: nn.Module, path: Path) -> int:
+    """Transfer learning: copy every weight with a matching name and shape except the classifier head.
+
+    ``path`` is a run directory (uses best.pt) or a checkpoint file. Returns tensors copied.
+    """
+    ckpt_path = path / "best.pt" if path.is_dir() else path
+    source = torch.load(ckpt_path, map_location="cpu", weights_only=False)["model_state"]
+    target = model.state_dict()
+    copied = {
+        k: v for k, v in source.items() if not k.startswith("head.") and k in target and target[k].shape == v.shape
+    }
+    if not copied:
+        raise ValueError(f"No compatible weights in {ckpt_path}; check feature and model settings match")
+    target.update(copied)
+    model.load_state_dict(target)
+    return len(copied)
+
+
 def run_experiment(cfg: dict, output_root: Path | None = None) -> dict:
     """Train and evaluate one configuration. Returns the summary dict (also written to disk)."""
     name = cfg["name"]
@@ -71,10 +95,13 @@ def run_experiment(cfg: dict, output_root: Path | None = None) -> dict:
 
     split_dir = project_path(cfg["data"]["split_dir"])
     classes = load_classes(split_dir)
+    background = BackgroundConfig.from_dict(cfg.get("background"))
+    if background.prob > 0:
+        classes = [*classes, BACKGROUND_LABEL]
     feature_cfg = FeatureConfig.from_dict(cfg.get("features"))
     augment = AugmentConfig.from_dict(cfg["augment"]) if cfg.get("augment") is not None else None
 
-    train_ds = ISLLandmarkDataset(split_dir / "train.csv", classes, feature_cfg, augment, seed=seed)
+    train_ds = ISLLandmarkDataset(split_dir / "train.csv", classes, feature_cfg, augment, seed=seed, background=background)
     val_ds = ISLLandmarkDataset(split_dir / "val.csv", classes, feature_cfg)
     test_ds = ISLLandmarkDataset(split_dir / "test.csv", classes, feature_cfg)
     mean, std = train_ds.compute_stats()
@@ -89,6 +116,9 @@ def run_experiment(cfg: dict, output_root: Path | None = None) -> dict:
     model_cfg = ModelConfig(input_dim=feature_cfg.feature_dim, num_classes=len(classes), **cfg.get("model", {}))
     model = build_model(model_cfg).to(device)
     n_params = count_parameters(model)
+    if cfg.get("init_from"):
+        loaded = init_from_checkpoint(model, project_path(cfg["init_from"]))
+        print(f"[{name}] initialised {loaded} tensors from {cfg['init_from']} (classifier head trained from scratch)")
 
     weight = _class_weights(train_ds.labels, len(classes)).to(device) if train_cfg["class_weights"] else None
     criterion = nn.CrossEntropyLoss(weight=weight, label_smoothing=float(train_cfg["label_smoothing"]))

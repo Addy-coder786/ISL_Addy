@@ -25,6 +25,28 @@ _COORD_DIM = _POSE.stop
 _BLOCK_MASK = ((_LEFT, -3), (_RIGHT, -2), (_POSE, -1))
 
 
+BACKGROUND_LABEL = "_BACKGROUND_"
+
+
+@dataclass
+class BackgroundConfig:
+    """Synthetic "no sign yet" samples for live use.
+
+    With probability ``prob`` a training sample is replaced by a piece of a random clip that is
+    too short to contain the whole sign: either its opening (rest + start of the sign) or a
+    random short span. The model learns to answer BACKGROUND until it has seen most of a sign.
+    """
+
+    prob: float = 0.0
+    min_fraction: float = 0.1
+    max_fraction: float = 0.4
+    onset_share: float = 0.5  # share of background samples taken from the start of a clip
+
+    @classmethod
+    def from_dict(cls, values: dict | None) -> BackgroundConfig:
+        return cls(**(values or {}))
+
+
 @dataclass
 class FeatureConfig:
     seq_len: int = 24
@@ -119,9 +141,13 @@ class ISLLandmarkDataset(Dataset):
         feature_cfg: FeatureConfig,
         augment: AugmentConfig | None = None,
         seed: int = 0,
+        background: BackgroundConfig | None = None,
     ) -> None:
         self.rows = read_manifest(Path(split_csv))
         self.classes = classes
+        self.background = background if background and background.prob > 0 else None
+        if self.background and BACKGROUND_LABEL not in classes:
+            raise ValueError(f"background samples need '{BACKGROUND_LABEL}' in the class list")
         self.class_to_idx = {c: i for i, c in enumerate(classes)}
         unknown = sorted({r.label for r in self.rows} - set(self.class_to_idx))
         if unknown:
@@ -152,7 +178,25 @@ class ISLLandmarkDataset(Dataset):
     def __len__(self) -> int:
         return len(self.sequences)
 
+    def _background_window(self) -> LandmarkSequence:
+        cfg = self.background
+        seq = self.sequences[int(self.rng.integers(len(self.sequences)))]
+        n = seq.num_frames
+        length = max(4, round(n * self.rng.uniform(cfg.min_fraction, cfg.max_fraction)))
+        length = min(length, n)
+        start = 0 if self.rng.random() < cfg.onset_share else int(self.rng.integers(0, n - length + 1))
+        sl = slice(start, start + length)
+        return LandmarkSequence(
+            seq.hands[sl], seq.hand_present[sl], seq.hand_score[sl], seq.pose[sl], seq.pose_present[sl],
+            seq.timestamps_ms[sl], seq.meta,
+        )
+
     def __getitem__(self, i: int) -> tuple[torch.Tensor, int]:
+        if self.background is not None and self.rng.random() < self.background.prob:
+            seq, label = self._background_window(), self.class_to_idx[BACKGROUND_LABEL]
+            feats = sequence_features(seq, self.feature_cfg, self.rng, self.augment)
+            feats = np.clip(feats, -self.feature_cfg.clip_value, self.feature_cfg.clip_value)
+            return torch.from_numpy((feats - self.mean) / self.std), label
         feats = sequence_features(self.sequences[i], self.feature_cfg, self.rng, self.augment)
         feats = np.clip(feats, -self.feature_cfg.clip_value, self.feature_cfg.clip_value)
         feats = (feats - self.mean) / self.std

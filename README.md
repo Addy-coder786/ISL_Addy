@@ -32,15 +32,18 @@ This folder contains a cleaned, zip-ready version of the unified MUDRA project a
 
 ## How recognition works (Phase 3)
 
-Browser (MediaPipe Tasks hands + pose, on-device) → rolling 2.5 s window of landmarks →
+Browser (MediaPipe Tasks hands + pose, on-device) → rolling 4 s window of landmarks →
 `POST /predict` → `mudra_ml` features (same code as training) → BiLSTM → calibrated
-confidence. Predictions below the validation-chosen threshold are shown as "Uncertain";
-a word is added to the sentence once it is recognised twice in a row. Only landmark
-coordinates leave the browser, never camera images.
+confidence. A built-in "no sign yet" class keeps the model quiet while hands rest or a sign
+is only half done; predictions below the validation-chosen threshold show as "Uncertain";
+a word is added once it is recognised twice in a row. Only landmark coordinates leave the
+browser, never camera images.
 
-Current model: `app/backend/models/isl_include_bilstm` — 262 INCLUDE words, 97.1% top-1 on
-the INCLUDE test set (not signer-independent). See its `model_card.json` for metrics,
-threshold, data licence (CC-BY-4.0) and limitations.
+Current model: `app/backend/models/isl_mudra_combined_bilstm` — 314 words (INCLUDE 263 +
+61 MUDRA words from `C:\ISLrchive`). Live-streaming test (held-out clips): MUDRA words
+94.5% correct / 0.6% wrong / 5% no word; INCLUDE 92.6% / 2.3% / 5%. See its
+`model_card.json` for metrics, threshold, data sources and limitations. The earlier
+INCLUDE-only model stays in `models/isl_include_bilstm` (set `MUDRA_MODEL_DIR` to use it).
 
 ## Included markdown files
 

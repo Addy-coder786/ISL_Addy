@@ -13,11 +13,10 @@ from fastapi.testclient import TestClient
 BACKEND = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND))
 
-from mudra_ml.config import PROJECT_ROOT
-from mudra_ml.preprocessing.sequence import load_sequence
-
 from mudra_api.app import create_app
 from mudra_api.settings import Settings
+from mudra_ml.config import PROJECT_ROOT
+from mudra_ml.preprocessing.sequence import load_sequence
 
 MODEL_DIR = BACKEND / "models" / "isl_include_bilstm"
 TEST_SPLIT = PROJECT_ROOT / "data" / "metadata" / "splits" / "include" / "test.csv"
@@ -103,3 +102,26 @@ def test_missing_model_gives_clear_503(tmp_path):
     assert c.get("/health").json()["model_loaded"] is False
     r = c.post("/predict", json={"frames": [{"hands": []}] * 10, "width": 640, "height": 480})
     assert r.status_code == 503 and "export_model.py" in r.json()["detail"]
+
+
+COMBINED_DIR = BACKEND / "models" / "isl_mudra_combined_bilstm"
+COMBINED_TEST = PROJECT_ROOT / "data" / "metadata" / "splits" / "combined_words" / "test.csv"
+
+
+@pytest.mark.skipif(not (COMBINED_DIR / "model.pt").exists() or not COMBINED_TEST.exists(), reason="combined model/data absent")
+def test_combined_model_waits_for_the_whole_sign():
+    """The start of a sign (rest + first moments) must give no_sign/uncertain, never a wrong word."""
+    c = TestClient(create_app(Settings(model_dir=COMBINED_DIR, device="cpu")))
+    assert c.get("/health").json()["num_signs"] == 314
+    assert all(not item["sign"].startswith("_") for item in c.get("/labels").json()["labels"])
+    with COMBINED_TEST.open(newline="", encoding="utf-8") as f:
+        rows = [r for r in csv.DictReader(f) if r["source"] == "islwords"][:12]
+    waiting = 0
+    for r in rows:
+        full = clip_to_request(PROJECT_ROOT / r["landmarks_path"])
+        opening = {**full, "frames": full["frames"][: max(8, len(full["frames"]) // 6)]}
+        body = c.post("/predict", json=opening).json()
+        assert body["status"] != "ok" or body["sign"] == r["label"], f"wrong word committed early: {body['sign']}"
+        waiting += body["status"] in ("no_sign", "uncertain", "no_hands")
+        assert all(not cand["sign"].startswith("_") for cand in body["top_k"])
+    assert waiting >= 8

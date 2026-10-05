@@ -55,7 +55,7 @@ class Candidate(BaseModel):
 
 
 class PredictResponse(BaseModel):
-    status: Literal["ok", "uncertain", "no_hands"]
+    status: Literal["ok", "uncertain", "no_hands", "no_sign"]
     sign: str | None
     label: str | None
     confidence: float

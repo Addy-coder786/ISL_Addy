@@ -39,6 +39,8 @@ Combine sources by passing several manifests to `make_splits.py`.
 | Watch training | `tensorboard --logdir experiments/runs` |
 | Re-score saved runs | `python training/scripts/evaluate.py experiments/runs/include_*` |
 | Comparison table | `python training/scripts/summarize_runs.py --glob "include_*" --title "INCLUDE"` |
+| Live-use (streaming) test | `python training/scripts/eval_streaming.py --model <exported dir> --split <split>/test.csv --window-s 4` |
+| Test on another dataset | `python training/scripts/eval_external.py --model <exported dir> --manifest <manifest.csv>` |
 | Ship a model to the API | `python training/scripts/export_model.py --run experiments/runs/<run> --name <model_name>` |
 
 Models (`mudra_ml/models/sequence_model.py`): per-frame **Landmark MLP** -> temporal block

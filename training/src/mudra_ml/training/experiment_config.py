@@ -49,3 +49,9 @@ def parse_overrides(pairs: list[str]) -> dict:
             node = node.setdefault(part, {})
         node[parts[-1]] = yaml.safe_load(raw)
     return out
+
+
+def ablation_base(spec: dict) -> dict:
+    """Config shared by every variant: the ``base:`` file, then the spec's own top-level keys."""
+    shared = {k: v for k, v in spec.items() if k not in ("base", "variants")}
+    return deep_merge(resolve(spec["base"]) if spec.get("base") else {}, shared)

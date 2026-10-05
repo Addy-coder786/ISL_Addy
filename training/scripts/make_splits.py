@@ -9,6 +9,7 @@ Official splits already present in a manifest (e.g. INCLUDE) are preserved.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -16,6 +17,41 @@ from pathlib import Path
 from mudra_ml.config import load_config, project_path
 from mudra_ml.data.manifest import read_manifest, write_manifest
 from mudra_ml.data.splits import SPLITS, assign_splits, check_no_leakage, split_report
+
+
+def dedupe_by_content(rows: list) -> tuple[list, int]:
+    """Drop rows whose raw file is byte-identical to an earlier row (copies with different names leak)."""
+    seen: set[str] = set()
+    kept = []
+    for r in rows:
+        path = Path(r.raw_path)
+        digest = hashlib.sha1(path.read_bytes()).hexdigest() if path.exists() else f"missing:{r.raw_path}"
+        if digest in seen:
+            continue
+        seen.add(digest)
+        kept.append(r)
+    return kept, len(rows) - len(kept)
+
+
+def hold_out_sessions(rows: list, pattern: re.Pattern) -> int:
+    """Lock the smallest session of every multi-session label to the test split."""
+    sessions: dict[str, dict[str, list]] = {}
+    for r in rows:
+        if r.split:
+            continue
+        m = pattern.search(Path(r.raw_path).stem)
+        if m:
+            sessions.setdefault(r.label, {}).setdefault(m.group(1), []).append(r)
+    held = 0
+    for by_session in sessions.values():
+        if len(by_session) < 2:
+            continue
+        smallest = min(by_session.values(), key=len)
+        for r in smallest:
+            r.split = "test"
+            r.group_id = f"{r.group_id}:heldout-session"
+            held += 1
+    return held
 
 
 def main() -> None:
@@ -27,6 +63,12 @@ def main() -> None:
     parser.add_argument(
         "--signer-regex", default=None,
         help=r"regex with one capture group applied to file names lacking a signer ID, e.g. '\((\d+)\)$'",
+    )
+    parser.add_argument("--no-dedupe", action="store_true", help="keep byte-identical duplicate files")
+    parser.add_argument(
+        "--session-regex", default=None,
+        help=r"regex with one capture group giving a recording session (e.g. 'WIN_(\d{8})'); for every label "
+        "recorded in 2+ sessions, its smallest session becomes the test set (new-session evaluation)",
     )
     parser.add_argument(
         "--ratios", nargs=3, type=float, default=None, metavar=("TRAIN", "VAL", "TEST"),
@@ -42,6 +84,14 @@ def main() -> None:
         # so reported results are not inflated by removing hard examples.
         usable = [r for r in usable if not r.quality_flag or r.split == "test"]
     print(f"{len(usable)}/{len(rows)} rows usable ({len(rows) - len(usable)} failed or flagged excluded)")
+
+    if not args.no_dedupe:
+        usable, dropped = dedupe_by_content(usable)
+        print(f"dedupe: dropped {dropped} byte-identical duplicate files")
+
+    if args.session_regex:
+        held = hold_out_sessions(usable, re.compile(args.session_regex))
+        print(f"session hold-out: {held} clips from later sessions locked to test")
 
     if args.signer_regex:
         pattern = re.compile(args.signer_regex)

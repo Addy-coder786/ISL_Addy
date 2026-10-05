@@ -52,7 +52,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "status": "ok",
             "model_loaded": recognizer is not None,
             "model": recognizer.name if recognizer else None,
-            "num_signs": len(recognizer.classes) if recognizer else 0,
+            "num_signs": len([c for c in recognizer.classes if not c.startswith("_")]) if recognizer else 0,
             "device": str(recognizer.device) if recognizer else None,
             "error": load_error,
         }
@@ -60,13 +60,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/labels")
     def labels() -> dict:
         rec = require_model()
-        return {"count": len(rec.classes), "labels": [{"sign": c, "label": readable(c)} for c in rec.classes]}
+        signs = [c for c in rec.classes if not c.startswith("_")]
+        return {"count": len(signs), "labels": [{"sign": c, "label": readable(c)} for c in signs]}
 
     @app.get("/model")
     def model_card() -> dict:
         rec = require_model()
         card = {k: v for k, v in rec.card.items() if k not in ("feature_mean", "feature_std", "classes")}
-        card["num_signs"] = len(rec.classes)
+        card["num_signs"] = len([c for c in rec.classes if not c.startswith("_")])
         card["active_threshold"] = rec.threshold
         return card
 

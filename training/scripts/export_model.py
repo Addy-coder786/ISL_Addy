@@ -4,7 +4,9 @@ Writes ``<out>/model.pt`` (state dict only, loadable with ``weights_only=True``)
 ``<out>/model_card.json`` (everything else inference needs, plus provenance and limits).
 
 The "uncertain" threshold is chosen on the VALIDATION split: the lowest calibrated
-confidence at which predictions kept on validation reach ``--target-accuracy``.
+confidence (never below ``--min-threshold``) at which predictions kept on validation reach
+``--target-accuracy``. Validation clips are complete signs; live sliding windows often are
+not, which is why the floor exists.
 
     python training/scripts/export_model.py --run experiments/runs/include_C_bilstm_no_velocity_<time> \
         --name isl_include_bilstm
@@ -34,11 +36,17 @@ DATA_SOURCES = {
         "license": "CC-BY-4.0",
         "attribution": "Sridhar, Ganesan, Kumar, Khapra. INCLUDE: A Large Scale Dataset for Indian Sign Language "
         "Recognition. ACM MM 2020. Pose data via AI4Bharat OpenHands.",
-    }
+    },
+    "combined": {
+        "name": "INCLUDE (263 words) + MUDRA isolated-word videos (61 words, C:\\ISL\archive)",
+        "pose_release": "INCLUDE via OpenHands (Zenodo 6674324); MUDRA words extracted locally with MediaPipe Tasks",
+        "license": "INCLUDE: CC-BY-4.0. MUDRA word videos: provided by the team; source and licence to be confirmed",
+        "attribution": "Sridhar et al., INCLUDE, ACM MM 2020; MUDRA team recordings.",
+    },
 }
 
 
-def choose_threshold(probs: np.ndarray, labels: np.ndarray, target: float) -> dict:
+def choose_threshold(probs: np.ndarray, labels: np.ndarray, target: float, minimum: float = 0.5) -> dict:
     conf = probs.max(axis=1)
     correct = probs.argmax(axis=1) == labels
     grid = np.round(np.arange(0.05, 0.96, 0.05), 2)
@@ -48,11 +56,11 @@ def choose_threshold(probs: np.ndarray, labels: np.ndarray, target: float) -> di
         keep = conf >= t
         acc = float(correct[keep].mean()) if keep.any() else None
         table.append({"threshold": float(t), "coverage": float(keep.mean()), "accuracy_on_kept": acc})
-        if chosen is None and acc is not None and acc >= target:
+        if chosen is None and t >= minimum and acc is not None and acc >= target:
             chosen = float(t)
     if chosen is None:
         chosen = float(grid[-1])
-    return {"threshold": chosen, "target_accuracy": target, "validation_curve": table}
+    return {"threshold": chosen, "target_accuracy": target, "minimum_threshold": minimum, "validation_curve": table}
 
 
 def main() -> None:
@@ -60,7 +68,11 @@ def main() -> None:
     parser.add_argument("--run", required=True, type=Path)
     parser.add_argument("--name", required=True)
     parser.add_argument("--out-root", default="app/backend/models", type=Path)
-    parser.add_argument("--target-accuracy", type=float, default=0.98)
+    parser.add_argument("--target-accuracy", type=float, default=0.985)
+    parser.add_argument(
+        "--min-threshold", type=float, default=0.5,
+        help="floor: validation clips are complete signs, live windows often are not, so never accept below this",
+    )
     parser.add_argument("--data-source", default="include", choices=sorted(DATA_SOURCES))
     args = parser.parse_args()
 
@@ -75,7 +87,7 @@ def main() -> None:
     val = ISLLandmarkDataset(project_path(cfg["data"]["split_dir"]) / "val.csv", ckpt["classes"], feature_cfg)
     val.set_stats(np.asarray(ckpt["feature_mean"]), np.asarray(ckpt["feature_std"]))
     logits, labels = predict(model, DataLoader(val, batch_size=128), device, amp=False)
-    threshold = choose_threshold(softmax(logits, temperature), labels, args.target_accuracy)
+    threshold = choose_threshold(softmax(logits, temperature), labels, args.target_accuracy, args.min_threshold)
 
     out = project_path(args.out_root) / args.name
     out.mkdir(parents=True, exist_ok=True)
@@ -96,7 +108,7 @@ def main() -> None:
         "metrics": {"validation": summary["val"], "test": summary["test"], "test_samples": summary["test_samples"]},
         "data": DATA_SOURCES[args.data_source],
         "limitations": [
-            "Vocabulary is the 263 INCLUDE words; MUDRA-specific words such as NAMASTE, WATER and HELP are not included.",
+            f"Vocabulary is {len(ckpt['classes'])} words; MUDRA app words such as NAMASTE, WATER and HELP are not included.",
             "INCLUDE has no signer IDs, so the test score is not signer-independent; expect lower accuracy on new people.",
             "Trained on isolated signs recorded from rest to rest; continuous signing is approximated with a sliding window.",
             "Confidence is calibrated on INCLUDE validation data and may be over-confident on very different cameras or lighting.",

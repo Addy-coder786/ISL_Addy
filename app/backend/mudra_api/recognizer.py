@@ -13,7 +13,11 @@ from pathlib import Path
 import numpy as np
 import torch
 from mudra_ml import schema
-from mudra_ml.datasets.isl_dataset import FeatureConfig, sequence_features
+from mudra_ml.datasets.isl_dataset import (
+    BACKGROUND_LABEL,
+    FeatureConfig,
+    sequence_features,
+)
 from mudra_ml.models.sequence_model import ModelConfig, build_model
 from mudra_ml.preprocessing.sequence import LandmarkSequence, assign_hands
 
@@ -91,12 +95,15 @@ class SignRecognizer:
         probs = np.exp(z - z.max())
         probs /= probs.sum()
 
-        order = np.argsort(-probs)[: req.top_k]
+        best_index = int(np.argmax(probs))
+        order = [i for i in np.argsort(-probs) if self.classes[i] != BACKGROUND_LABEL][: req.top_k]
         top = [{"sign": self.classes[i], "label": readable(self.classes[i]), "confidence": float(probs[i])} for i in order]
         best = top[0]
 
         if hand_rate < min_hand_rate:
             status = "no_hands"
+        elif self.classes[best_index] == BACKGROUND_LABEL:
+            status = "no_sign"  # the model sees resting hands or an incomplete sign
         elif best["confidence"] < self.threshold:
             status = "uncertain"
         else:
@@ -106,7 +113,7 @@ class SignRecognizer:
             "status": status,
             "sign": best["sign"] if confident else None,
             "label": best["label"] if confident else None,
-            "confidence": best["confidence"],
+            "confidence": best["confidence"] if status != "no_sign" else float(probs[best_index]),
             "top_k": top,
             "hand_rate": hand_rate,
             "frames_received": len(req.frames),

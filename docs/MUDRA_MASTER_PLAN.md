@@ -251,3 +251,17 @@ Phase 3 candidate: BiLSTM without velocity (best mean, best calibration); MLP+po
 - Streaming replay of 8 held-out clips through the browser client: 7/8 committed correctly, 0 wrong commits, 25 ms median round trip.
 - Headless-browser check: Communicate, Practice, Progress load and track with no console errors.
 - Not yet verified: live signing by a real person in front of a webcam (needs a human); expect lower accuracy than INCLUDE.
+
+### 2026-10-05: Team data from C:\ISL processed and trained
+- Inventory: 61 isolated words (1,210 recordings + 2 rotated copies each), 101 sentences (687 videos),
+  ISLVT 78 sentences with Marathi (152 videos, not yet used), alphabet images (12,637, not yet used). No signer IDs anywhere.
+- Unseen-signer check: INCLUDE-only model on the team's 9 shared words = 8.3% top-1 (sign variants / handedness differ).
+- Pipeline fixes: rotated copies grouped with their original; byte-identical duplicates removed (3 pairs had leaked
+  across splits); run_ablation ignored shared settings (invalid sentence runs deleted, test added); threshold floor 0.5.
+- Combined model (INCLUDE + 61 words, 314 words): INCLUDE test 96.2%; team words held-out recording day 98.0%.
+- Streaming evaluator added: the first combined model committed a wrong word on 89.5% of team clips (it read the
+  start of a sign as STILL). Added a "no sign yet" background class (25% of training samples) and a 4 s window,
+  both chosen on validation: team words 94.5% correct / 0.6% wrong; INCLUDE 92.6% / 2.3% (held-out test).
+  Browser-client replay at 30 fps: 23/24 correct, 0 wrong.
+- Sentence model (101 phrases, ~4.5 clips per class): 57% top-1, 76% top-5; transfer from the word model did not help
+  (51.6%, within noise). Needs more recordings per sentence.
