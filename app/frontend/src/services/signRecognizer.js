@@ -37,6 +37,7 @@ class SignRecognizer {
     this.started = false
     this.onPrediction = null // whole-sign result when a sign ends
     this.onActivity = null // 'signing' when a sign starts, 'idle' after it ends
+    this.onProvisional = null // live best guess while signing (display only)
     this.onStatusChange = null
   }
 
@@ -79,6 +80,7 @@ class SignRecognizer {
     ws.onmessage = (msg) => {
       const ev = JSON.parse(msg.data)
       if (ev.event === 'sign_started') this.onActivity?.('signing')
+      else if (ev.event === 'provisional') this.onProvisional?.(ev.guess)
       else if (ev.event === 'too_short') this.onActivity?.('idle')
       else if (ev.event === 'sign_ended') {
         this.onActivity?.('idle')

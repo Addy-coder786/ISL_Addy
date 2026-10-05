@@ -277,3 +277,13 @@ Phase 3 candidate: BiLSTM without velocity (best mean, best calibration); MLP+po
   no false words during idle stretches.
 - Browser client over WebSocket (replay at true frame rate): 21/24 correct, 0 wrong, 3 left uncertain.
 - UI shows "Signing…" while a sign is in progress; a word is added once when the sign ends.
+
+### 2026-10-05: Real-time Phase 2 done (smoothing, commit rules, idle robustness)
+- Synthetic fidgets (hand to face / hair and back) added as "no sign" training samples and as benchmark distractors
+  in idle stretches. They exposed 1.1-2.7 false words per idle minute with the Phase 1 model; the retrained model
+  makes 0 on validation streams.
+- Whole-sign smoothing: each sign classified on 3 slightly different cuts and averaged; margin rule available;
+  same-word cooldown 1 s; tuned on validation (threshold 0.7, tta 3) -> training/configs/streaming.json.
+- Held-out test streams (with fidgets): INCLUDE 85.2% correct / 1.8% wrong / 0 extra; team words 98.9% / 0% / 0;
+  idle false words 0.10/min (INCLUDE) and 0 (team). Browser-client replay: 22/24 correct, 0 wrong.
+- UI: live "Looks like X…" while signing (never committed), "Did you mean" top-3 buttons when uncertain.

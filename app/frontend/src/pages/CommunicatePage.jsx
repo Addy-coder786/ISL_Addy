@@ -59,6 +59,7 @@ export default function CommunicatePage() {
   const expressionHistoryRef = useRef([])
   const expressionPendingRef = useRef({ tone: null, count: 0 })
   const smoothedConfidenceRef = useRef(0)
+  const [suggestions, setSuggestions] = useState([])
   const [modelState, setModelState] = useState({ status: signRecognizer.status, info: null, error: null })
   const modelOnlineRef = useRef(false)
   const lastModelSignRef = useRef(null)
@@ -99,6 +100,12 @@ export default function CommunicatePage() {
       })
       // The server classified one complete sign (start -> end), so a confident result is committed once
       if (ok) commitToken(p.sign)
+      // Uncertain: offer the top 3 instead of guessing (look-alike signs, unclear signing)
+      setSuggestions(p.status === 'uncertain' ? (p.top_k || []).slice(0, 3) : [])
+    }
+    signRecognizer.onProvisional = (guess) => {
+      if (isPausedRef.current) return
+      setCurrentDetection((prev) => (prev.status === 'signing' ? { ...prev, candidate: guess.label } : prev))
     }
     signRecognizer.onActivity = (state) => {
       if (isPausedRef.current || state !== 'signing') return
@@ -108,6 +115,7 @@ export default function CommunicatePage() {
     return () => {
       signRecognizer.onPrediction = null
       signRecognizer.onActivity = null
+      signRecognizer.onProvisional = null
       signRecognizer.onStatusChange = null
       signRecognizer.reset()
     }
@@ -663,10 +671,25 @@ export default function CommunicatePage() {
                       : (currentDetection.label || readableSign(currentDetection.sign))}
                   </span>
                 </div>
-                {currentDetection.status === 'uncertain' && currentDetection.candidate && (
+                {currentDetection.status === 'signing' && currentDetection.candidate && (
                   <p className="text-xs text-mudra-indigo-600 mt-1">
-                    Closest match: <strong>{currentDetection.candidate}</strong>. Repeat the sign clearly from start to finish.
+                    Looks like <strong>{currentDetection.candidate}</strong>… (finish the sign and lower your hands)
                   </p>
+                )}
+                {suggestions.length > 0 && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-mudra-indigo-600">Did you mean:</span>
+                    {suggestions.map((s) => (
+                      <button
+                        key={s.sign}
+                        type="button"
+                        onClick={() => { commitToken(s.sign); setSuggestions([]) }}
+                        className="px-2.5 py-1 rounded-full border border-mudra-lavender-300 bg-white font-semibold text-mudra-indigo-900 hover:bg-mudra-lavender-50"
+                      >
+                        {s.label} <span className="font-mono text-mudra-indigo-400">{Math.round(s.confidence * 100)}%</span>
+                      </button>
+                    ))}
+                  </div>
                 )}
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
                   <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-mono font-semibold ${

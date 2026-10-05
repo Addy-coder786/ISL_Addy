@@ -1,7 +1,7 @@
 {
   "name": "isl_mudra_combined_bilstm",
-  "created": "2026-10-05T21:59:31+05:30",
-  "source_run": "combined_bg25_bilstm_20261005-201159",
+  "created": "2026-10-05T23:35:54+05:30",
+  "source_run": "combined_bg25_fidget_bilstm_20261005-231209",
   "task": "Isolated Indian Sign Language word recognition from MediaPipe hand + pose landmarks",
   "classes": [
     "ACTOR",
@@ -671,27 +671,27 @@
     1.0,
     1.0
   ],
-  "temperature": 0.7295524680348144,
-  "uncertain_threshold": 0.9,
+  "temperature": 0.7428769509520544,
+  "uncertain_threshold": 0.95,
   "threshold_selection": {
-    "threshold": 0.9,
+    "threshold": 0.95,
     "target_accuracy": 0.985,
     "minimum_threshold": 0.5,
     "validation_curve": [
       {
         "threshold": 0.05,
         "coverage": 1.0,
-        "accuracy_on_kept": 0.9758522727272727
+        "accuracy_on_kept": 0.9772727272727273
       },
       {
         "threshold": 0.1,
         "coverage": 1.0,
-        "accuracy_on_kept": 0.9758522727272727
+        "accuracy_on_kept": 0.9772727272727273
       },
       {
         "threshold": 0.15,
-        "coverage": 0.9985795454545454,
-        "accuracy_on_kept": 0.9772403982930299
+        "coverage": 1.0,
+        "accuracy_on_kept": 0.9772727272727273
       },
       {
         "threshold": 0.2,
@@ -706,88 +706,88 @@
       {
         "threshold": 0.3,
         "coverage": 0.9971590909090909,
-        "accuracy_on_kept": 0.9772079772079773
+        "accuracy_on_kept": 0.9786324786324786
       },
       {
         "threshold": 0.35,
         "coverage": 0.9957386363636364,
-        "accuracy_on_kept": 0.9771754636233951
+        "accuracy_on_kept": 0.978601997146933
       },
       {
         "threshold": 0.4,
-        "coverage": 0.9943181818181818,
-        "accuracy_on_kept": 0.9785714285714285
+        "coverage": 0.9957386363636364,
+        "accuracy_on_kept": 0.978601997146933
       },
       {
         "threshold": 0.45,
         "coverage": 0.9928977272727273,
-        "accuracy_on_kept": 0.9785407725321889
+        "accuracy_on_kept": 0.9799713876967096
       },
       {
         "threshold": 0.5,
         "coverage": 0.9914772727272727,
-        "accuracy_on_kept": 0.9785100286532952
+        "accuracy_on_kept": 0.9799426934097422
       },
       {
         "threshold": 0.55,
-        "coverage": 0.9857954545454546,
-        "accuracy_on_kept": 0.9798270893371758
+        "coverage": 0.9914772727272727,
+        "accuracy_on_kept": 0.9799426934097422
       },
       {
         "threshold": 0.6,
-        "coverage": 0.9801136363636364,
-        "accuracy_on_kept": 0.9797101449275363
+        "coverage": 0.9914772727272727,
+        "accuracy_on_kept": 0.9799426934097422
       },
       {
         "threshold": 0.65,
+        "coverage": 0.9886363636363636,
+        "accuracy_on_kept": 0.9813218390804598
+      },
+      {
+        "threshold": 0.7,
+        "coverage": 0.9829545454545454,
+        "accuracy_on_kept": 0.9812138728323699
+      },
+      {
+        "threshold": 0.75,
+        "coverage": 0.9815340909090909,
+        "accuracy_on_kept": 0.9811866859623734
+      },
+      {
+        "threshold": 0.8,
+        "coverage": 0.9786931818181818,
+        "accuracy_on_kept": 0.9825834542815675
+      },
+      {
+        "threshold": 0.85,
         "coverage": 0.9715909090909091,
         "accuracy_on_kept": 0.9824561403508771
       },
       {
-        "threshold": 0.7,
-        "coverage": 0.9701704545454546,
-        "accuracy_on_kept": 0.9824304538799414
-      },
-      {
-        "threshold": 0.75,
-        "coverage": 0.9701704545454546,
-        "accuracy_on_kept": 0.9824304538799414
-      },
-      {
-        "threshold": 0.8,
-        "coverage": 0.9602272727272727,
-        "accuracy_on_kept": 0.9837278106508875
-      },
-      {
-        "threshold": 0.85,
-        "coverage": 0.9573863636363636,
-        "accuracy_on_kept": 0.983679525222552
-      },
-      {
         "threshold": 0.9,
-        "coverage": 0.9488636363636364,
-        "accuracy_on_kept": 0.9850299401197605
+        "coverage": 0.9588068181818182,
+        "accuracy_on_kept": 0.9822222222222222
       },
       {
         "threshold": 0.95,
-        "coverage": 0.9318181818181818,
-        "accuracy_on_kept": 0.9878048780487805
+        "coverage": 0.9247159090909091,
+        "accuracy_on_kept": 0.9831029185867896
       }
     ]
   },
   "metrics": {
     "validation": {
-      "accuracy": 0.9758522727272727,
-      "macro_f1": 0.9714743589743591,
-      "top5_accuracy": 0.9886363636363636
+      "accuracy": 0.9772727272727273,
+      "macro_f1": 0.9737942612942613,
+      "top5_accuracy": 0.9957386363636364
     },
     "test": {
-      "accuracy": 0.9699097291875627,
-      "top5_accuracy": 0.9939819458375125,
-      "macro_f1": 0.9684966130826004,
-      "weighted_f1": 0.9697361927050995,
-      "ece": 0.016017108142577712,
-      "uncalibrated_ece": 0.10915436318986797
+      "accuracy": 0.9689067201604814,
+      "top5_accuracy": 0.995987963891675,
+      "macro_f1": 0.9679885754726517,
+      "weighted_f1": 0.9670686663164095,
+      "ece": 0.014886782505133932,
+      "uncalibrated_ece": 0.10742428532542483
     },
     "test_samples": 997
   },

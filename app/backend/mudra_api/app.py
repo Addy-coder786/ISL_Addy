@@ -112,6 +112,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                               pose is not None)
                 event = session.push(frame)
                 if event:
+                    if "guess" in event:
+                        event["guess"]["label"] = readable(event["guess"]["sign"])
                     if "result" in event:
                         for item in event["result"]["top_k"]:
                             item["label"] = readable(item["sign"])

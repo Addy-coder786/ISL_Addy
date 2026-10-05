@@ -41,6 +41,7 @@ class BackgroundConfig:
     min_fraction: float = 0.1
     max_fraction: float = 0.4
     onset_share: float = 0.5  # share of background samples taken from the start of a clip
+    fidget_share: float = 0.0  # share of background samples that are synthetic face-touch / hair movements
 
     @classmethod
     def from_dict(cls, values: dict | None) -> BackgroundConfig:
@@ -181,6 +182,10 @@ class ISLLandmarkDataset(Dataset):
     def _background_window(self) -> LandmarkSequence:
         cfg = self.background
         seq = self.sequences[int(self.rng.integers(len(self.sequences)))]
+        if cfg.fidget_share > 0 and self.rng.random() < cfg.fidget_share:
+            from mudra_ml.datasets.distractors import synth_fidget
+
+            return synth_fidget(seq, self.rng)
         n = seq.num_frames
         length = max(4, round(n * self.rng.uniform(cfg.min_fraction, cfg.max_fraction)))
         length = min(length, n)

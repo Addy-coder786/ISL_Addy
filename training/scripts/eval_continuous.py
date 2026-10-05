@@ -26,31 +26,38 @@ import numpy as np
 
 from mudra_ml.config import project_path
 from mudra_ml.data.manifest import read_manifest
+from mudra_ml.datasets.distractors import synth_fidget
 from mudra_ml.preprocessing.sequence import LandmarkSequence, load_sequence
 from mudra_ml.streaming import Frame, ModelBundle, SegmenterConfig, StreamingRecognizer
 
 CFG_PATH = project_path("training/configs/streaming.json")
 
 
-def build_streams(rows, classes, fps, signs_per_stream=8, seed=0):
+def build_streams(rows, classes, fps, signs_per_stream=8, seed=0, fidgets=True):
     rng = np.random.default_rng(seed)
     rows = [r for r in rows if r.label in classes]
     order = rng.permutation(len(rows))
     streams = []
     for k in range(0, len(order), signs_per_stream):
         hands, present, pose, pose_p, truth, idle = [], [], [], [], [], []
-        prev = None
+        prev, prev_seq = None, None
         for j, idx in enumerate(order[k : k + signs_per_stream]):
             r = rows[idx]
             s = load_sequence(Path(r.landmarks_path))
             if prev is not None:  # smooth transition: interpolate last frame of previous clip -> first frame of this one
                 n = int(rng.uniform(0.3, 1.0) * fps)
-                if j % 3 == 0:  # idle stretch: hold the rest pose, then transition
+                if j % 3 == 0:  # idle stretch: rest, often with a fidget (face touch / hair), then transition
                     hold = int(rng.uniform(2.0, 4.0) * fps)
-                    idle.append((len(hands), len(hands) + hold))
+                    i0 = len(hands)
                     for _ in range(hold):
                         jit = rng.normal(0, 0.002, prev[0].shape).astype(np.float32)
                         hands.append(prev[0] + jit * prev[1][:, None, None]); present.append(prev[1]); pose.append(prev[2]); pose_p.append(prev[3])
+                    if fidgets and rng.random() < 0.7:
+                        f = synth_fidget(prev_seq, rng, length=int(rng.uniform(0.8, 1.6) * fps))
+                        k = i0 + int(rng.integers(0, max(1, hold - len(f.hands))))
+                        for m in range(min(len(f.hands), len(hands) - k)):
+                            hands[k + m], present[k + m], pose[k + m] = f.hands[m], f.hand_present[m], f.pose[m]
+                    idle.append((i0, len(hands)))
                 for a in np.linspace(0, 1, n + 2)[1:-1]:
                     both = prev[1] & s.hand_present[0]
                     h = ((1 - a) * prev[0] + a * s.hands[0]) * both[:, None, None]
@@ -60,6 +67,7 @@ def build_streams(rows, classes, fps, signs_per_stream=8, seed=0):
             hands += list(s.hands); present += list(s.hand_present); pose += list(s.pose); pose_p += list(s.pose_present)
             truth.append((start / fps, len(hands) / fps, r.label))
             prev = (s.hands[-1], s.hand_present[-1], s.pose[-1], bool(s.pose_present[-1]))
+            prev_seq = s
             meta = s.meta
         streams.append({"hands": np.stack(hands), "present": np.stack(present), "pose": np.stack(pose),
                         "pose_present": np.array(pose_p), "truth": truth, "idle": [(a / fps, b / fps) for a, b in idle],
@@ -68,7 +76,7 @@ def build_streams(rows, classes, fps, signs_per_stream=8, seed=0):
 
 
 def run_segmenter(bundle, cfg, st, fps):
-    rec = StreamingRecognizer(bundle, cfg, st["width"], st["height"])
+    rec = StreamingRecognizer(bundle, SegmenterConfig(**{**cfg.to_dict(), "provisional_s": 1e9}), st["width"], st["height"])
     words = []
     for i in range(len(st["hands"])):
         ev = rec.push(Frame(i / fps, st["hands"][i], st["present"][i], st["pose"][i], bool(st["pose_present"][i])))
@@ -143,6 +151,7 @@ def main() -> None:
     ap.add_argument("--tune", action="store_true")
     ap.add_argument("--tune-threshold-only", action="store_true", help="keep saved segmenter settings, tune only the threshold")
     ap.add_argument("--default-fps", type=float, default=25.0)
+    ap.add_argument("--config-out", default=None, help="where tuned settings are saved (default training/configs/streaming.json)")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
@@ -156,7 +165,8 @@ def main() -> None:
         fps = float(load_sequence(Path(rs[0].landmarks_path)).meta.get("fps") or 0) or args.default_fps
         data[src] = (fps, build_streams(rs, set(bundle.classes), fps))
 
-    cfg = SegmenterConfig.load(CFG_PATH)
+    cfg_path = project_path(args.config_out) if args.config_out else CFG_PATH
+    cfg = SegmenterConfig.load(cfg_path if cfg_path.exists() else CFG_PATH)
     if args.tune_threshold_only:
         args.tune = True
     if args.tune:
@@ -171,16 +181,16 @@ def main() -> None:
         cfg = best[1]
         # Stage 2: whole-sign commit threshold (window-tuned card threshold is too strict for full signs)
         best_t = None
-        for th in (0.5, 0.6, 0.7, 0.8, 0.9):
-            trial = SegmenterConfig(**{**cfg.to_dict(), "commit_threshold": th})
+        for th, mg, tta in itertools.product((0.6, 0.7, 0.8, 0.9), (0.0, 0.2, 0.4), (1, 3, 5)):
+            trial = SegmenterConfig(**{**cfg.to_dict(), "commit_threshold": th, "margin": mg, "tta": tta})
             ms = [score(sts, [run_segmenter(bundle, trial, st, fps) for st in sts]) for fps, sts in data.values()]
             val = float(np.mean([objective(m) for m in ms]))
             if best_t is None or val > best_t[0]:
                 best_t = (val, trial)
         cfg = best_t[1]
-        print("commit threshold chosen:", cfg.commit_threshold)
-        CFG_PATH.write_text(json.dumps(cfg.to_dict(), indent=2), encoding="utf-8")
-        print("chosen on this split:", {k: getattr(cfg, k) for k in grid}, f"-> {CFG_PATH.name}")
+        print("decision chosen:", {"threshold": cfg.commit_threshold, "margin": cfg.margin, "tta": cfg.tta})
+        cfg_path.write_text(json.dumps(cfg.to_dict(), indent=2), encoding="utf-8")
+        print("chosen on this split:", {k: getattr(cfg, k) for k in grid}, f"-> {cfg_path.name}")
 
     report = {"model": bundle.name, "segmenter": cfg.to_dict(), "results": {}}
     for src, (fps, sts) in data.items():

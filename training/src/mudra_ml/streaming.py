@@ -33,6 +33,10 @@ class SegmenterConfig:
     max_sign_s: float = 6.0  # a sign running this long is classified anyway
     buffer_s: float = 12.0
     commit_threshold: float | None = None  # whole-sign confidence needed to add a word (None = model card value)
+    margin: float = 0.0  # top-1 must beat top-2 by this much (look-alike signs become "uncertain")
+    tta: int = 1  # smoothing: classify this many slightly different cuts of the sign and average them
+    cooldown_s: float = 1.0  # the same word is not added again within this time (double triggers)
+    provisional_s: float = 0.5  # while signing, send a live guess this often (UI only, never committed)
 
     @classmethod
     def load(cls, path: Path | None) -> SegmenterConfig:
@@ -95,6 +99,18 @@ class SignSegmenter:
         self.prev_t = f.t
         return active
 
+    def current(self) -> LandmarkSequence | None:
+        """The sign in progress so far (for live provisional guesses)."""
+        if self.state != "signing":
+            return None
+        return self._segment(self.sign_start - self.cfg.pad_pre_s, self.frames[-1].t)
+
+    def variants(self, t0: float, t1: float, k: int) -> list[LandmarkSequence]:
+        """k cuts of one sign with slightly different start/end padding (test-time smoothing)."""
+        shifts = [(0.0, 0.0), (-0.15, 0.0), (0.15, 0.0), (0.0, 0.15), (-0.15, 0.15)][: max(1, k)]
+        segs = [self._segment(t0 + a, t1 + b) for a, b in shifts]
+        return [s for s in segs if s is not None]
+
     def push(self, f: Frame) -> tuple[str | None, LandmarkSequence | None]:
         """Add one frame. Returns (event, segment): event is 'sign_started', 'sign_ended' or None."""
         cfg = self.cfg
@@ -124,7 +140,8 @@ class SignSegmenter:
         self.state, self.sign_start, self.active_since = "idle", None, None
         if end - start < cfg.min_sign_s:
             return "too_short", None
-        return "sign_ended", self._segment(start - cfg.pad_pre_s, end + cfg.pad_post_s)
+        self.last_bounds = (start - cfg.pad_pre_s, end + cfg.pad_post_s)
+        return "sign_ended", self._segment(*self.last_bounds)
 
     def _segment(self, t0: float, t1: float) -> LandmarkSequence | None:
         fs = [f for f in self.frames if t0 <= f.t <= t1]
@@ -168,14 +185,16 @@ class ModelBundle:
         p = np.exp(logits - logits.max(axis=1, keepdims=True))
         return p / p.sum(axis=1, keepdims=True)
 
-    def decide(self, p: np.ndarray, top_k: int = 3, threshold: float | None = None) -> dict:
+    def decide(self, p: np.ndarray, top_k: int = 3, threshold: float | None = None, margin: float = 0.0) -> dict:
         """Whole-sign decision: background -> no_sign; below threshold -> uncertain; else ok."""
         best = int(p.argmax())
         order = [i for i in np.argsort(-p) if self.classes[i] != BACKGROUND_LABEL][:top_k]
         top = [{"sign": self.classes[i], "confidence": float(p[i])} for i in order]
         if self.classes[best] == BACKGROUND_LABEL:
             status = "no_sign"
-        elif p[best] < (self.threshold if threshold is None else threshold):
+        elif p[best] < (self.threshold if threshold is None else threshold) or (
+            len(top) > 1 and top[0]["sign"] == self.classes[best] and p[best] - top[1]["confidence"] < margin
+        ):
             status = "uncertain"
         else:
             status = "ok"
@@ -189,14 +208,32 @@ class StreamingRecognizer:
     def __init__(self, bundle: ModelBundle, cfg: SegmenterConfig, width: int, height: int):
         self.bundle, self.width, self.height = bundle, width, height
         self.segmenter = SignSegmenter(cfg, width, height)
+        self.cfg = cfg
         self.threshold = cfg.commit_threshold if cfg.commit_threshold is not None else bundle.threshold
+        self.last_word: tuple[str, float] | None = None
+        self.last_provisional = -1e9
 
     def push(self, frame: Frame) -> dict | None:
         event, segment = self.segmenter.push(frame)
+        if event is None and self.segmenter.state == "signing" and frame.t - self.last_provisional >= self.cfg.provisional_s:
+            self.last_provisional = frame.t
+            cur = self.segmenter.current()
+            if cur is not None and cur.num_frames >= 8:
+                guess = self.bundle.decide(self.bundle.probs([cur], self.width, self.height)[0], threshold=0.0)
+                if guess["top_k"]:
+                    return {"event": "provisional", "state": "signing", "guess": guess["top_k"][0]}
+            return None
         if event != "sign_ended":
             return {"event": event, "state": self.segmenter.state} if event else None
         if segment is None:
             return {"event": "sign_ended", "state": "idle", "result": {"status": "no_sign", "sign": None, "confidence": 0.0, "top_k": []}}
-        result = self.bundle.decide(self.bundle.probs([segment], self.width, self.height)[0], threshold=self.threshold)
+        cuts = self.segmenter.variants(*self.segmenter.last_bounds, self.cfg.tta) or [segment]
+        probs = self.bundle.probs(cuts, self.width, self.height).mean(axis=0)  # smoothing over cuts
+        result = self.bundle.decide(probs, threshold=self.threshold, margin=self.cfg.margin)
+        if result["status"] == "ok":
+            if self.last_word and self.last_word[0] == result["sign"] and frame.t - self.last_word[1] < self.cfg.cooldown_s:
+                result = {**result, "status": "duplicate", "sign": None}
+            else:
+                self.last_word = (result["sign"], frame.t)
         return {"event": "sign_ended", "state": "idle", "result": result,
                 "t0": float(segment.timestamps_ms[0]) / 1000, "t1": float(segment.timestamps_ms[-1]) / 1000}

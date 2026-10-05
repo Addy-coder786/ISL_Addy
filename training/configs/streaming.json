@@ -8,5 +8,9 @@
   "min_sign_s": 0.3,
   "max_sign_s": 6.0,
   "buffer_s": 12.0,
-  "commit_threshold": 0.8
+  "commit_threshold": 0.7,
+  "margin": 0.0,
+  "tta": 3,
+  "cooldown_s": 1.0,
+  "provisional_s": 0.5
 }
