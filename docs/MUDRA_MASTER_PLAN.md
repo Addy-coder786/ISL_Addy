@@ -336,3 +336,22 @@ Phase 3 candidate: BiLSTM without velocity (best mean, best calibration); MLP+po
   mostly (10.1-10.7 points) the model confidently reading the new sign as a known look-alike, which happens for
   18.7% of new signs without custom words; retraining with the recordings is the fix.
 - Not yet verified: the Record page with a real camera and person (frontend builds; API covered by tests).
+
+### 2026-10-06: Real-time Phase 3, step 2: how well does it work on recording conditions it never saw?
+- Public multi-signer ISL word data is not directly downloadable (FDMSE-ISL: email request; CISLR: form;
+  iSign: Hugging Face login). The alphabet images in C:\ISL (100x100 px, one signer, MediaPipe finds a hand in
+  25% even upscaled) are unusable for fingerspelling; letters can be taught through the Record page instead.
+- INCLUDE has no signer IDs. The original videos were grouped into 30 recording-session clusters by appearance
+  (file-number runs + first-frame clustering); matching people across sessions would need face recognition,
+  which was not done (personal-data rule). Split `combined_words_v2_session`: 9 sessions test, 4 validation,
+  pose-release and video twins share the session group; 63 INCLUDE words appear in the test sessions.
+- Same recipe as the deployed v3 model, trained without those sessions: clip accuracy on unseen sessions 66.7%
+  (video) / 66.8% (pose release), top-5 91%, vs 96.5-97.8% on the random split. Team words on a held-out day
+  96.7%. Per word, accuracy follows the number of training sessions: 2 -> 64%, 3-4 -> 69%, 5+ -> 92% (n=12).
+- Variants on the same split: mirror 60.1%, strong geometric augmentation 64.5%, pose dropout 62.8% (better on
+  validation, 69.5%, but not on test). None beats the baseline; the gap is data coverage.
+- Streams from unseen sessions (threshold 0.8): real video 48.4% correct / 9.5% wrong, team words 91.2% / 0%.
+  Threshold sweep (video): 0.9 -> 39.3% / 5.3%; 0.95 -> 30.1% / 2.3%; 0.98 -> 44% correct on team words only.
+  Kept 0.8 for the deployed model (which is trained on all sessions); a stricter "new user" setting is an
+  option for the UI.
+- Deployed model unchanged (v3, all sessions). New augmentation option `pose_dropout` kept in the code (off).

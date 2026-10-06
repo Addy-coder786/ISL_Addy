@@ -136,6 +136,9 @@ def sequence_features(
         hands, hand_present, pose = affine_jitter(hands, hand_present, pose, width, height, augment, rng)
 
     feats = build_frame_features(hands, hand_present, pose, pose_present, width, height)
+    if augment is not None and rng is not None and augment.pose_dropout > 0 and rng.random() < augment.pose_dropout:
+        feats[:, _POSE] = 0.0
+        feats[:, _BLOCK_MASK[2][1]] = 0.0  # pose presence mask off: the model must manage with hands alone
     if feature_cfg.use_velocity:
         feats = add_velocity(feats)
     return feats.astype(np.float32)

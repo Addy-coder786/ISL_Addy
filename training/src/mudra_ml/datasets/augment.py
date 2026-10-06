@@ -28,6 +28,7 @@ class AugmentConfig:
     segment_crop_prob: float = 0.0
     segment_config: str = "training/configs/streaming.json"  # segmenter settings used for the crop
     segment_jitter_s: float = 0.15
+    pose_dropout: float = 0.0  # probability of hiding the upper-body pose block (hands only), against body-shape shortcuts
 
     @classmethod
     def from_dict(cls, values: dict | None) -> AugmentConfig:

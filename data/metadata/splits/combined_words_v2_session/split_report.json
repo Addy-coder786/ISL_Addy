@@ -1,0 +1,38 @@
+{
+  "test_sessions": [
+    29,
+    16,
+    7,
+    25,
+    24,
+    22,
+    5,
+    21,
+    26
+  ],
+  "val_sessions": [
+    10,
+    19,
+    20,
+    9
+  ],
+  "dropped_untrainable": 0,
+  "counts": {
+    "train": {
+      "include": 3363,
+      "islwords": 842,
+      "include_video": 1820
+    },
+    "val": {
+      "include": 323,
+      "include_video": 323,
+      "islwords": 181
+    },
+    "test": {
+      "include": 561,
+      "include_video": 529,
+      "islwords": 181
+    }
+  },
+  "include_words_in_test": 63
+}

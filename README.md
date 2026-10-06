@@ -51,9 +51,24 @@ Almost all wrong words (10.1-10.7 points) are the model confidently reading the 
 known look-alike; without custom words that happens for 18.7% of them. Retraining with the
 recordings is the real fix, so recordings are stored in the training format.
 
+**New recording conditions (the honest number for new users).** INCLUDE was recorded in sessions
+(day, outfit, camera setup). Holding out 9 whole sessions from training and testing on them:
+
+| Unseen sessions | Clip accuracy | Top-5 | Streams: correct | Streams: wrong |
+|---|---|---|---|---|
+| INCLUDE real video (529 clips) | 66.7% (96.5% when sessions are mixed) | 91.3% | 48.4% | 9.5% |
+| Team words, held-out recording day (181 clips) | 96.7% | 100% | 91.2% | 0% |
+
+Every held-out word had been trained on only 2-4 sessions, and accuracy follows that count
+(64% with 2, 69% with 3-4, 92% with 5+). Mirror, stronger geometric augmentation and pose
+dropout did not close the gap (60-65%), so more signers per word is the fix, not more training
+tricks. A signer can appear in several sessions, so this is session-independent, not strictly
+signer-independent. Raising the confidence bar trades correct words for fewer wrong ones on new
+users: at 0.9, 39.3% correct / 5.3% wrong; at 0.95, 30.1% / 2.3%.
+
 **Limits:**
-- No dataset has signer IDs, so none of these numbers measure accuracy on new people.
-  Recordings made in the app carry the signer's name, so they can provide that test.
+- No dataset has signer IDs; the session hold-out above is the closest measured proxy for new
+  people. Recordings made in the app carry the signer's name, so they can provide the real test.
 - The idle movements in the benchmark are synthetic.
 - The app's own words NAMASTE, WATER, HELP, YES, NO, GOODBYE, HOME and PERSON have no training data yet.
 
@@ -138,7 +153,8 @@ Tests: `pytest training` (44) and `pytest app/backend/tests` (11).
 Phase 3:
 - done: fewer missed signs on real video (segment-style training crops)
 - done: in-app recording tool and few-shot new words
-- next: signer-independent test (app recordings by several people, or FDMSE-ISL / CISLR)
+- done: session-independent test (new day / outfit / camera): 66.7% on clips, 48% / 9.5% wrong on streams
+- next: more signers per word (FDMSE-ISL access requested by email; teammates recording in the app)
 - next: retrain with app recordings once each new word has 5 or more
 - next: fingerspelling from the alphabet images
 
