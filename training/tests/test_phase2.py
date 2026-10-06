@@ -207,3 +207,18 @@ def test_background_samples_use_background_label(split_dir):
     assert ds[0][0].shape == (8, cfg.feature_dim)
     with pytest.raises(ValueError):
         ISLLandmarkDataset(split_dir / "train.csv", classes[:-1], cfg, background=BackgroundConfig(prob=0.5))
+
+
+def test_segment_crop_uses_active_span(split_dir):
+    classes = json.loads((split_dir / "classes.json").read_text())
+    cfg = FeatureConfig(seq_len=8)
+    ds = ISLLandmarkDataset(split_dir / "train.csv", classes, cfg, AugmentConfig(segment_crop_prob=1.0), seed=0)
+    bounds = ds.segment_bounds()
+    assert len(bounds) == len(ds)
+    for i, b in enumerate(bounds):
+        n = ds.sequences[i].num_frames
+        if b is not None:
+            assert 0 <= b[0] <= b[1] < n and b[2] > 0
+            win = ds._segment_window(i)
+            assert win is not None and 0 <= win[0] and win[0] + win[1] <= n and win[1] >= 4
+    assert ds[0][0].shape == (8, cfg.feature_dim)

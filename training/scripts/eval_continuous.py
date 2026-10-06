@@ -69,6 +69,9 @@ def build_streams(rows, classes, fps, signs_per_stream=8, seed=0, fidgets=True):
             prev = (s.hands[-1], s.hand_present[-1], s.pose[-1], bool(s.pose_present[-1]))
             prev_seq = s
             meta = s.meta
+        for _ in range(int(1.5 * fps)):  # rest after the last sign so the segmenter can close it
+            jit = rng.normal(0, 0.002, prev[0].shape).astype(np.float32)
+            hands.append(prev[0] + jit * prev[1][:, None, None]); present.append(prev[1]); pose.append(prev[2]); pose_p.append(prev[3])
         streams.append({"hands": np.stack(hands), "present": np.stack(present), "pose": np.stack(pose),
                         "pose_present": np.array(pose_p), "truth": truth, "idle": [(a / fps, b / fps) for a, b in idle],
                         "width": int(meta["width"]), "height": int(meta["height"])})
@@ -146,7 +149,7 @@ def objective(m):
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--model", default="app/backend/models/isl_mudra_combined_v2_bilstm")
+    ap.add_argument("--model", default="app/backend/models/isl_mudra_combined_v3_bilstm")
     ap.add_argument("--split", required=True)
     ap.add_argument("--tune", action="store_true")
     ap.add_argument("--tune-threshold-only", action="store_true", help="keep saved segmenter settings, tune only the threshold")

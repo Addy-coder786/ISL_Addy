@@ -24,24 +24,23 @@ movement. Settings were chosen on validation streams; these are held-out test nu
 
 | Source | Correct | Wrong | Missed | Extra words | False words while idle |
 |---|---|---|---|---|---|
-| INCLUDE pose release (816 signs) | 82.0% | 2.0% | 16.1% | 0 | 0 |
-| INCLUDE original videos, MediaPipe landmarks (498 signs) | 78.5% | 2.6% | 18.9% | 0 | 0 |
+| INCLUDE pose release (816 signs) | 91.3% | 1.7% | 7.0% | 0 | 0 |
+| INCLUDE original videos, MediaPipe landmarks (498 signs) | 92.6% | 1.8% | 5.6% | 0 | 0 |
 | Team words (181 signs) | 97.8% | 0.0% | 2.2% | 0 | 0 |
 
 The second row is the closest proxy for the webcam: the same landmark pipeline the browser runs.
-The previous model, trained on the pose release only, scored 41.8% correct / 7.0% wrong on that row.
+The first model, trained on the pose release only, scored 41.8% correct / 7.0% wrong on that row.
 
 Clip-level accuracy (complete pre-cut clips):
-- INCLUDE 263 words, pose release: 96.0%. Published references: 85.6% (original paper),
+- INCLUDE 263 words, pose release: 96.5%. Published references: 85.6% (original paper),
   93.5% (OpenHands SL-GCN), 97.7% (HWGAT).
-- INCLUDE original videos re-extracted with MediaPipe: 96.8% (previous model: 71.5%).
+- INCLUDE original videos re-extracted with MediaPipe: 97.8% (first model: 71.5%).
 - Team words, on a recording day held out from training: 98.0%.
 - Earlier rule-based / Random-Forest system: about 44%.
 
 **Limits:**
 - No dataset has signer IDs, so none of these numbers measure accuracy on new people.
 - The idle movements in the benchmark are synthetic.
-- About 1 in 5 real-video signs is left uncertain on streams (the model offers its top 3 instead).
 - The app's own words NAMASTE, WATER, HELP, YES, NO, GOODBYE, HOME and PERSON have no training data yet.
 
 ## How it works

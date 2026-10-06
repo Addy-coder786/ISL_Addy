@@ -306,3 +306,17 @@ Phase 3 candidate: BiLSTM without velocity (best mean, best calibration); MLP+po
 - Deployed as `isl_mudra_combined_v2_bilstm`; the previous model is kept in `app/backend/models/`.
 - Still open: 18.9% of real-video signs are missed (left uncertain) on streams despite 96.8% clip accuracy, so the
   segment boundaries or the confidence threshold on real video are the next thing to look at.
+
+### 2026-10-06: Real-time Phase 3, step 1: missed signs on real video
+- Diagnosis of the 94 real-video signs the v2 model missed on test streams: 40 were called "no sign" (background
+  samples included random mid-clip spans, which look like a short, quick sign), 27 were never segmented (15 of them
+  the last sign of a stream with no rest after it: a benchmark flaw), 27 were left uncertain.
+- Benchmark fix: every stream now ends with 1.5 s of rest. Corrected v2 baseline: INCLUDE pose 86.2%,
+  real video 82.1%, team words 97.8% correct.
+- Training fixes: background samples now come only from clip starts and ends; half of the training samples are cut
+  the way the live segmenter cuts a sign (active span + padding, jittered by 0.15 s; `segment_crop_prob`).
+- Model v3 (`combined_v3_segcrop_bilstm`), held-out test streams, v2 -> v3: INCLUDE pose 86.2% -> 91.3% correct
+  (wrong 1.6% -> 1.7%); real video 82.1% -> 92.6% (wrong 2.4% -> 1.8%, idle false words 0.16 -> 0/min);
+  team words 97.8% -> 97.8% (wrong 0%). Clip-level: INCLUDE pose 96.5%, real video 97.8%, team words 99.4%.
+  Decision settings unchanged after re-tuning on validation (threshold 0.8, tta 1). Deployed as
+  `isl_mudra_combined_v3_bilstm`.

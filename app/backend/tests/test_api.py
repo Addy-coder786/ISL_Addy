@@ -104,7 +104,7 @@ def test_missing_model_gives_clear_503(tmp_path):
     assert r.status_code == 503 and "export_model.py" in r.json()["detail"]
 
 
-COMBINED_DIR = BACKEND / "models" / "isl_mudra_combined_v2_bilstm"
+COMBINED_DIR = BACKEND / "models" / "isl_mudra_combined_v3_bilstm"
 COMBINED_TEST = PROJECT_ROOT / "data" / "metadata" / "splits" / "combined_words" / "test.csv"
 
 
