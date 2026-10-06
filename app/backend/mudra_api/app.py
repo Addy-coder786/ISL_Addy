@@ -17,6 +17,7 @@ from mudra_ml.streaming import ModelBundle, SegmenterConfig, StreamingRecognizer
 from mudra_api import __version__
 from mudra_api.recognizer import SignRecognizer, readable
 from mudra_api.recordings import RecordingStore, parse_frame
+from mudra_api.references import ReferenceClips
 from mudra_api.schemas import PredictRequest, PredictResponse
 from mudra_api.settings import Settings
 
@@ -53,6 +54,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     except FileNotFoundError as exc:
         load_error = f"Model files not found in {settings.model_dir}: {exc.filename}"
         log.warning(load_error)
+    references = ReferenceClips(settings.reference_split)
     store = RecordingStore(settings.recordings_dir, bundle, FewShotConfig.load(project_path("training/configs/fewshot.json")))
     if len(store.bank):
         log.info("Custom words from app recordings: %s", ", ".join(store.bank.labels))
@@ -85,7 +87,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def labels() -> dict:
         rec = require_model()
         signs = [c for c in rec.classes if not c.startswith("_")]
-        return {"count": len(signs), "labels": [{"sign": c, "label": readable(c)} for c in signs]}
+        tested = rec.card.get("per_word_test", {})
+        return {"count": len(signs), "labels": [
+            {"sign": c, "label": readable(c), "has_reference": c in references.available,
+             **({"test_correct": tested[c]["correct"], "test_clips": tested[c]["clips"]} if c in tested else {})}
+            for c in signs]}
+
+    @app.get("/reference/{sign}")
+    def reference(sign: str) -> dict:
+        """One real training example of a sign as landmark frames, so people can see which sign the model learned."""
+        found = references.get(sign.upper())
+        if found is None:
+            raise HTTPException(status_code=404, detail=f"no training example for {sign}")
+        return {**found, "label": readable(found["sign"])}
 
     @app.get("/model")
     def model_card() -> dict:

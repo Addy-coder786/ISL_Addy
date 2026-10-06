@@ -251,3 +251,20 @@ def test_closeup_augmentation_runs(split_dir):
     cfg = FeatureConfig(seq_len=8)
     ds = ISLLandmarkDataset(split_dir / "train.csv", classes, cfg, AugmentConfig(closeup_prob=1.0, segment_crop_prob=1.0), seed=0)
     assert all(ds[i][0].shape == (8, cfg.feature_dim) for i in range(len(ds)))
+
+
+def test_fill_hand_gaps_bridges_short_gaps_only():
+    from mudra_ml.preprocessing.sequence import LandmarkSequence, fill_hand_gaps
+
+    n = 20
+    hands = np.zeros((n, 2, 21, 3), np.float32)
+    present = np.zeros((n, 2), bool)
+    for t in (0, 4, 15):  # gap of 3 frames (0.12 s at 25 fps), then a gap of 10 frames (0.4 s)
+        present[t, 0] = True
+        hands[t, 0] = t
+    seq = LandmarkSequence(hands, present, present.astype(np.float32), np.zeros((n, 33, 4), np.float32),
+                           np.ones(n, bool), np.arange(n) * 40, {"fps": 25.0})
+    out = fill_hand_gaps(seq, 0.2)
+    assert out.hand_present[:5, 0].all() and abs(float(out.hands[2, 0, 0, 0]) - 2.0) < 1e-5
+    assert not out.hand_present[5:15, 0].any()  # longer than 0.2 s: left alone
+    assert not out.hand_present[:, 1].any()

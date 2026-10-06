@@ -29,7 +29,7 @@ def _optional_float(name: str) -> float | None:
 @dataclass
 class Settings:
     model_dir: Path = field(
-        default_factory=lambda: Path(os.getenv("MUDRA_MODEL_DIR", BACKEND_DIR / "models" / "isl_mudra_combined_v4_bilstm"))
+        default_factory=lambda: Path(os.getenv("MUDRA_MODEL_DIR", BACKEND_DIR / "models" / "isl_mudra_combined_v6_bilstm"))
     )
     device: str = field(default_factory=lambda: os.getenv("MUDRA_DEVICE", "cpu"))
     cors_origins: list[str] = field(default_factory=_origins)
@@ -40,6 +40,10 @@ class Settings:
     # One line per finished live sign (decision summary only), for diagnosing live use
     events_log: Path = field(
         default_factory=lambda: Path(os.getenv("MUDRA_EVENTS_LOG", BACKEND_DIR.parents[1] / "experiments" / "logs" / "stream_events.jsonl"))
+    )
+    # Training split whose clips are shown as "how to sign it" examples
+    reference_split: Path = field(
+        default_factory=lambda: Path(os.getenv("MUDRA_REFERENCE_SPLIT", BACKEND_DIR.parents[1] / "data" / "metadata" / "splits" / "combined_words_v3" / "train.csv"))
     )
     # Signs recorded in the app (landmarks only): data/processed/landmarks/app + data/metadata/manifest_app.csv
     recordings_dir: Path = field(

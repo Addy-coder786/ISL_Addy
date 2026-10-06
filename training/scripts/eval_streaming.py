@@ -8,7 +8,7 @@ the FIRST committed word is correct, wrong, or never committed.
 This is the metric that matters for the app: test-set accuracy only scores complete,
 pre-cut clips, while the live camera mostly sees partial signs and resting hands.
 
-    python training/scripts/eval_streaming.py --model app/backend/models/isl_mudra_combined_v4_bilstm \
+    python training/scripts/eval_streaming.py --model app/backend/models/isl_mudra_combined_v6_bilstm \
         --split data/metadata/splits/combined_words/test.csv
 """
 

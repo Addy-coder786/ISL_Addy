@@ -391,3 +391,21 @@ Phase 3 candidate: BiLSTM without velocity (best mean, best calibration); MLP+po
   when the model gives it >= 30%, with the runner-ups as optional one-tap replacements. On held-out test
   streams this moves missed signs into correct ones (real video, close-up: correct 78.7% -> 85.1% with the
   still rule) at the cost of 1-2 points more wrong words.
+
+### 2026-10-07: Sign-to-word check (user: "flat" shown as "Wednesday"), label audit, v6
+- Live log: the user's "flat" got WEDNESDAY at 0.42, which the new auto-add rule (>= 0.30) added; raised to 0.50.
+- Label audit (`experiments/reports/label_shift_*.json`): no video filed under two words; pose-release vs video
+  copies agree (median wrist-trajectory correlation 0.96). Cross-session nearest-neighbour check: one INCLUDE
+  session (Home, MVI_4896-4955) has folder boundaries off by one (third take of each word = next word's
+  sign); a within-session check agrees. 20 clips relabelled in both copies, plus MVI_5138 HOT -> COLD:
+  `data/metadata/splits/combined_words_v3` (`label_fixes.json`). The first attempt matched by file number
+  only and hit Colours clips with the same numbers; redone matching category + word + file.
+- Hand visibility: while the arm is raised, hands are found in 71% (INCLUDE videos) / 80% (pose release) of
+  frames vs ~99% for webcam-like team recordings (motion blur). A zoomed upper-body hand search only raised it
+  to 72-73%. Gap filling (interpolate hands over gaps <= 0.4 s) restores a median of 100%; trained as v7
+  (`features.fill_gaps_s`), but it did not beat v6 on streams, so it is off.
+- Models on the corrected labels, threshold tuned on validation streams (12 fps, normal + close-up framing):
+  mean correct / wrong, validation: v4 91.1% / 1.1%, v6 93.7% / 0.8%, v7 93.3% / 1.3%; test: v4 89.5% / 1.1%,
+  v6 92.4% / 1.6%, v7 91.7% / 1.6%. Deployed v6 (`isl_mudra_combined_v6_bilstm`, threshold 0.7, tta 1).
+- New: `/reference/{sign}` + "How to sign it" viewer (one real training example per word as a skeleton,
+  mirrored); per-word test accuracy in the model card and the word list.

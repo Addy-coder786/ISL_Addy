@@ -25,10 +25,11 @@ import { classifyISLSign } from '../services/islClassifier'
 import { ISL_VOCABULARY_LEXICON, buildMultilingualSentence, findISLLexiconItem, readableSign } from '../services/islDictionary'
 import { analyzeExpression, FACE_UNAVAILABLE_EXPRESSION, INITIAL_EXPRESSION } from '../services/expressionAnalyzer'
 import MudraAvatarViewer from '../components/avatar/MudraAvatarViewer'
+import SignReference from '../components/SignReference'
 
 const AUTO_SPEAK_PAUSE_MS = 2500
 // An unsure sign still adds its best guess at this confidence or more (below it the sign is dropped)
-const AUTO_ADD_MIN = 0.3
+const AUTO_ADD_MIN = 0.5
 const LOW_FPS = 15
 // Close-up framing: shoulders wider than this share of the frame, or lower than this height, leave no room for the hands
 const FRAMING = { maxShoulderWidth: 0.6, maxShoulderY: 0.72 }
@@ -87,6 +88,7 @@ export default function CommunicatePage() {
   const [vocab, setVocab] = useState([])
   const [vocabQuery, setVocabQuery] = useState('')
   const [vocabOpen, setVocabOpen] = useState(false)
+  const [referenceSign, setReferenceSign] = useState(null) // word whose training example is shown
   useEffect(() => {
     if (modelState.status !== 'online') return
     fetch(`${API_BASE_URL}/labels`)
@@ -778,9 +780,18 @@ export default function CommunicatePage() {
                     />
                     <div className="max-h-48 overflow-y-auto flex flex-wrap gap-1.5">
                       {vocabMatches.slice(0, 400).map((v) => (
-                        <span key={v.sign} className="px-2 py-0.5 rounded-full bg-white border border-mudra-lavender-200 text-xs text-mudra-indigo-900">
+                        <button
+                          key={v.sign}
+                          type="button"
+                          disabled={!v.has_reference}
+                          onClick={() => setReferenceSign(v.sign)}
+                          title={v.test_clips ? `Tested: ${v.test_correct}/${v.test_clips} correct` : undefined}
+                          className={`px-2 py-0.5 rounded-full border text-xs ${referenceSign === v.sign
+                            ? 'bg-mudra-indigo-700 border-mudra-indigo-700 text-white'
+                            : 'bg-white border-mudra-lavender-200 text-mudra-indigo-900 hover:bg-mudra-lavender-50'} disabled:cursor-default`}
+                        >
                           {v.label}
-                        </span>
+                        </button>
                       ))}
                       {vocabMatches.length === 0 && (
                         <span className="text-xs text-mudra-indigo-600">
@@ -788,8 +799,17 @@ export default function CommunicatePage() {
                         </span>
                       )}
                     </div>
+                    {referenceSign && (
+                      <SignReference
+                        sign={referenceSign}
+                        testCorrect={vocab.find((v) => v.sign === referenceSign)?.test_correct}
+                        testClips={vocab.find((v) => v.sign === referenceSign)?.test_clips}
+                        onClose={() => setReferenceSign(null)}
+                      />
+                    )}
                     <p className="text-[11px] text-mudra-indigo-600">
-                      Sign one word from start to finish, then lower your hands. Stand so your shoulders and both hands are in view.
+                      Tap a word to see how the model expects it to be signed. Sign one word from start to finish, then
+                      lower your hands. Stand so your shoulders and both hands are in view.
                     </p>
                   </>
                 )}
@@ -848,6 +868,15 @@ export default function CommunicatePage() {
                   <p className="text-xs text-mudra-indigo-600 mt-1">
                     Looks like <strong>{currentDetection.candidate}</strong>… (finish the sign and lower your hands)
                   </p>
+                )}
+                {!currentDetection.isUnknown && currentDetection.sign && currentDetection.sign !== 'UNKNOWN' && (
+                  <button
+                    type="button"
+                    onClick={() => { setVocabOpen(true); setReferenceSign(currentDetection.sign) }}
+                    className="mt-1 text-xs font-semibold text-mudra-indigo-700 underline hover:text-mudra-indigo-900"
+                  >
+                    See how "{currentDetection.label || readableSign(currentDetection.sign)}" is signed
+                  </button>
                 )}
                 {suggestions.length > 0 && (
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">

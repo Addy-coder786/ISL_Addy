@@ -63,6 +63,22 @@ def choose_threshold(probs: np.ndarray, labels: np.ndarray, target: float, minim
     return {"threshold": chosen, "target_accuracy": target, "minimum_threshold": minimum, "validation_curve": table}
 
 
+def per_word_test_accuracy(run_dir: Path) -> dict:
+    """{word: {"correct": c, "clips": n}} from the run's held-out test predictions (empty if missing)."""
+    import csv
+
+    path = run_dir / "reports" / "test_predictions.csv"
+    if not path.exists():
+        return {}
+    out: dict = {}
+    with path.open(encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            entry = out.setdefault(row["true"], {"correct": 0, "clips": 0})
+            entry["clips"] += 1
+            entry["correct"] += int(row["true"] == row["predicted"])
+    return out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--run", required=True, type=Path)
@@ -114,6 +130,9 @@ def main() -> None:
             "Confidence is calibrated on INCLUDE validation data and may be over-confident on very different cameras or lighting.",
         ],
     }
+    per_word = per_word_test_accuracy(run_dir)
+    if per_word:
+        card["per_word_test"] = per_word
     (out / "model_card.json").write_text(json.dumps(card, indent=2), encoding="utf-8")
     kept = next(r for r in threshold["validation_curve"] if r["threshold"] == threshold["threshold"])
     print(

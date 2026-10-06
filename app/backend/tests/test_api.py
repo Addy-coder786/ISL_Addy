@@ -58,7 +58,8 @@ def test_health_and_labels(client):
     assert health["model_loaded"] and health["num_signs"] == 262
     labels = client.get("/labels").json()
     assert labels["count"] == 262
-    assert {"sign": "GOOD_MORNING", "label": "Good morning"} in labels["labels"]
+    entry = next(x for x in labels["labels"] if x["sign"] == "GOOD_MORNING")
+    assert entry["label"] == "Good morning" and isinstance(entry["has_reference"], bool)
     card = client.get("/model").json()
     assert "feature_mean" not in card and card["active_threshold"] > 0
 
@@ -104,8 +105,8 @@ def test_missing_model_gives_clear_503(tmp_path):
     assert r.status_code == 503 and "export_model.py" in r.json()["detail"]
 
 
-COMBINED_DIR = BACKEND / "models" / "isl_mudra_combined_v4_bilstm"
-COMBINED_TEST = PROJECT_ROOT / "data" / "metadata" / "splits" / "combined_words" / "test.csv"
+COMBINED_DIR = BACKEND / "models" / "isl_mudra_combined_v6_bilstm"
+COMBINED_TEST = PROJECT_ROOT / "data" / "metadata" / "splits" / "combined_words_v3" / "test.csv"
 
 
 @pytest.mark.skipif(not (COMBINED_DIR / "model.pt").exists() or not COMBINED_TEST.exists(), reason="combined model/data absent")
@@ -229,3 +230,16 @@ def test_custom_word_bank_decision():
     assert bank.decide(np.array([1.0, 0.05, 0]), sure) is None  # the model is confident about a known word
     assert bank.decide(np.array([0, 0, 1.0]), unsure) is None  # unlike every prototype
     assert bank.decide(np.array([1.0, 1.0, 0]), unsure) is None  # A and B equally close
+
+
+@pytest.mark.skipif(not (COMBINED_DIR / "model.pt").exists() or not COMBINED_TEST.exists(), reason="combined model/data absent")
+def test_reference_clips():
+    c = TestClient(create_app(Settings(model_dir=COMBINED_DIR, device="cpu")))
+    labels = c.get("/labels").json()["labels"]
+    with_ref = [x for x in labels if x["has_reference"]]
+    assert len(with_ref) > 200
+    ref = c.get(f"/reference/{with_ref[0]['sign']}").json()
+    assert ref["sign"] == with_ref[0]["sign"] and ref["frames"] and ref["width"] > 0
+    first = next(f for f in ref["frames"] if f["pose"])
+    assert len(first["pose"]) == 33 and len(first["pose"][0]) == 4
+    assert c.get("/reference/NOT_A_SIGN").status_code == 404

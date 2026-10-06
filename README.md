@@ -20,30 +20,35 @@ Only body and hand landmark coordinates leave the browser, never camera images.
 ## Results
 
 Live-use benchmark: held-out signs joined into continuous streams with transitions and idle
-movement. Settings were chosen on validation streams; these are held-out test numbers.
+movement, delivered at 12 frames/s like a laptop webcam. Settings were chosen on validation
+streams; these are held-out test numbers, with the corrected labels (see Data quality).
 
-| Source | Correct | Wrong | Missed | Extra words | False words while idle |
-|---|---|---|---|---|---|
-| INCLUDE pose release (816 signs) | 91.9% | 2.5% | 5.6% | 0 | 0 |
-| INCLUDE original videos, MediaPipe landmarks (498 signs) | 92.0% | 2.4% | 5.6% | 0 | 0 |
-| Team words (181 signs) | 98.9% | 0.0% | 1.1% | 0.006 / sign | 0 |
-
-Same signs seen through a simulated close-up laptop webcam (frame ends between the chin and the
-waist, hands only visible when raised), which is how most people use the app:
-
-| Source | Correct | Wrong | Missed | Previous model (correct) |
+| Source | Framing | Correct | Wrong | Missed |
 |---|---|---|---|---|
-| INCLUDE pose release | 89.0% | 2.7% | 8.3% | 65.0% |
-| INCLUDE original videos | 87.6% | 3.2% | 9.2% | 71.3% |
-| Team words | 90.6% | 1.7% | 7.7% | 72.4% |
+| INCLUDE original videos, MediaPipe landmarks (498 signs) | normal | 93.8% | 1.2% | 5.0% |
+| | close-up webcam | 90.6% | 2.0% | 7.4% |
+| INCLUDE pose release (816 signs) | normal | 92.6% | 2.1% | 5.3% |
+| | close-up webcam | 90.0% | 2.0% | 8.1% |
+| Team words (181 signs) | normal | 97.2% | 0.0% | 2.8% |
+| | close-up webcam | 90.1% | 2.2% | 7.7% |
 
-The second row of the first table is the closest proxy for the webcam: the same landmark pipeline the browser runs.
+Close-up webcam = the frame ends between the chin and the waist and the hands are only visible
+when raised, which is how most people use the app. Extra words: at most 0.002 per sign; false
+words while idle: at most 0.1 per minute.
+
+The first row is the closest proxy for the webcam: the same landmark pipeline the browser runs.
 The first model, trained on the pose release only, scored 41.8% correct / 7.0% wrong on that row.
 
-Clip-level accuracy (complete pre-cut clips):
-- INCLUDE 263 words, pose release: 96.5%. Published references: 85.6% (original paper),
+**Data quality.** An embedding audit found that one INCLUDE recording session (Home words,
+MVI_4896-4955) has its folder boundaries off by one: the third take of each word is the next word's
+sign. 20 clips (both the video and the pose-release copy) were relabelled; the evidence and the list
+are in `data/metadata/splits/combined_words_v3/label_fixes.json`. No video is filed under two
+words, and the pose-release and video copies of every clip agree (median correlation 0.96).
+
+Clip-level accuracy (complete pre-cut clips, corrected labels):
+- INCLUDE original videos re-extracted with MediaPipe: 99.0%; team words 99.4%.
+- INCLUDE 263 words, pose release: 97.4%. Published references: 85.6% (original paper),
   93.5% (OpenHands SL-GCN), 97.7% (HWGAT).
-- INCLUDE original videos re-extracted with MediaPipe: 97.8% (first model: 71.5%).
 - Team words, on a recording day held out from training: 98.0%.
 - Earlier rule-based / Random-Forest system: about 44%.
 
@@ -99,7 +104,7 @@ UI: Signing... / "Looks like X" <---- (3-cut smoothing, threshold,           upp
 3. **Segmentation:** a sign starts when hands are raised or moving, and ends after 0.4 s of rest.
    Tuned on validation streams (`training/configs/streaming.json`).
 4. **Decision:** the whole sign is classified once. A "no sign yet" class covers rest, partial
-   signs and fidgets; a word is added at 60% confidence or more (chosen on validation streams); otherwise the top 3 are offered.
+   signs and fidgets; a word is added at 70% confidence or more (chosen on validation streams); between 50% and 70% the best guess is added and two alternatives are offered as one-tap replacements.
 
 ## Quick start (Windows)
 

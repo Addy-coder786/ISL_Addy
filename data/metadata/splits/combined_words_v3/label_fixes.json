@@ -1,0 +1,109 @@
+{
+ "reason": "INCLUDE folder boundaries off by one in one recording session (Home, MVI_4896-4955) and MVI_5138 (Adjectives); found by a cross-session and a within-session embedding audit; only clips flagged by both are changed",
+ "fixes": [
+  {
+   "clip": "Adjectives/5138",
+   "was": "HOT",
+   "now": "COLD"
+  },
+  {
+   "clip": "Home/4899",
+   "was": "KITCHEN",
+   "now": "BATHROOM"
+  },
+  {
+   "clip": "Home/4902",
+   "was": "BATHROOM",
+   "now": "PENCIL"
+  },
+  {
+   "clip": "Home/4905",
+   "was": "PENCIL",
+   "now": "PEN"
+  },
+  {
+   "clip": "Home/4908",
+   "was": "PEN",
+   "now": "PHOTOGRAPH"
+  },
+  {
+   "clip": "Home/4911",
+   "was": "PHOTOGRAPH",
+   "now": "SOAP"
+  },
+  {
+   "clip": "Home/4914",
+   "was": "SOAP",
+   "now": "BOOK"
+  },
+  {
+   "clip": "Home/4922",
+   "was": "PAGE",
+   "now": "KEY"
+  },
+  {
+   "clip": "Home/4925",
+   "was": "KEY",
+   "now": "PAINT"
+  },
+  {
+   "clip": "Home/4931",
+   "was": "LETTER",
+   "now": "PAPER"
+  },
+  {
+   "clip": "Home/4934",
+   "was": "PAPER",
+   "now": "LOCK"
+  },
+  {
+   "clip": "Home/4937",
+   "was": "LOCK",
+   "now": "TELEPHONE"
+  },
+  {
+   "clip": "Home/4946",
+   "was": "BOX",
+   "now": "GIFT"
+  },
+  {
+   "clip": "Home/4949",
+   "was": "GIFT",
+   "now": "CARD"
+  },
+  {
+   "clip": "Home/4952",
+   "was": "CARD",
+   "now": "RING"
+  },
+  {
+   "clip": "Home/4955",
+   "was": "RING",
+   "now": "TOOL"
+  },
+  {
+   "clip": "Home/4896",
+   "was": "BEDROOM",
+   "now": "KITCHEN",
+   "evidence": "cross-session audit + third take of the shifted block"
+  },
+  {
+   "clip": "Home/4919",
+   "was": "BOOK",
+   "now": "PAGE",
+   "evidence": "cross-session audit + third take of the shifted block"
+  },
+  {
+   "clip": "Home/4940",
+   "was": "TELEPHONE",
+   "now": "BAG",
+   "evidence": "cross-session audit + third take of the shifted block"
+  },
+  {
+   "clip": "Home/4943",
+   "was": "BAG",
+   "now": "BOX",
+   "evidence": "cross-session audit + third take of the shifted block"
+  }
+ ]
+}
