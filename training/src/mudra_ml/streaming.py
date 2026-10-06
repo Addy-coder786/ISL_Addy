@@ -36,6 +36,9 @@ class SegmenterConfig:
     margin: float = 0.0  # top-1 must beat top-2 by this much (look-alike signs become "uncertain")
     tta: int = 1  # smoothing: classify this many slightly different cuts of the sign and average them
     cooldown_s: float = 1.0  # the same word is not added again within this time (double triggers)
+    # Hands held still anywhere in view also count as rest (close-up webcams: hands never leave the frame).
+    still_s: float | None = None  # stillness this long ends a sign (None = off)
+    still_speed: float = 0.4  # below this speed (shoulder widths per second, over ~0.25 s) a hand is still
     provisional_s: float = 0.5  # while signing, send a live guess this often (UI only, never committed)
 
     @classmethod
@@ -71,6 +74,9 @@ class SignSegmenter:
         self.body: tuple[np.ndarray, float] | None = None  # shoulder centre, shoulder width
         self.prev_wrist: list[np.ndarray | None] = [None, None]
         self.prev_t: float | None = None
+        self.track: list[deque] = [deque(), deque()]  # recent (t, key points) per hand, for the stillness test
+        self.last_motion: float | None = None  # last time a visible hand moved (or appeared)
+        self.still_from: float | None = None  # set while the hands are held still: when the stillness began
 
     def _activity(self, f: Frame) -> bool:
         if f.pose_present:
@@ -97,7 +103,37 @@ class SignSegmenter:
                 active = active or raised or moving
             self.prev_wrist[h] = wrist
         self.prev_t = f.t
+        self.still_from = None
+        if self.cfg.still_s is not None and active and self.body is not None:
+            if self._hands_moving(f):
+                self.last_motion = f.t
+            elif self.last_motion is not None and f.t - self.last_motion >= self.cfg.still_s:
+                self.still_from = self.last_motion
+                return False
         return active
+
+    _KEY_POINTS = (0, 4, 8, 12, 20)  # wrist and fingertips: a handshape change counts as movement
+
+    def _hands_moving(self, f: Frame) -> bool:
+        """Any visible hand moved faster than still_speed over the last ~0.25 s (or just appeared)."""
+        _, w = self.body
+        moving = False
+        for h in range(2):
+            tr = self.track[h]
+            if not f.present[h]:
+                tr.clear()
+                continue
+            pts = f.hands[h, list(self._KEY_POINTS), :2] * [self.aspect, 1]
+            tr.append((f.t, pts))
+            while len(tr) > 2 and f.t - tr[1][0] >= 0.25:
+                tr.popleft()
+            t0, p0 = tr[0]
+            if f.t - t0 < 0.15:
+                moving = True  # hand just appeared: not enough history to call it still
+                continue
+            speed = float(np.linalg.norm(pts - p0, axis=1).max()) / w / (f.t - t0)
+            moving = moving or speed > self.cfg.still_speed
+        return moving
 
     def current(self) -> LandmarkSequence | None:
         """The sign in progress so far (for live provisional guesses)."""
@@ -124,6 +160,9 @@ class SignSegmenter:
         else:
             self.active_since = None
             self.rest_since = self.rest_since if self.rest_since is not None else f.t
+            if self.still_from is not None:  # held still: the sign ended when the movement stopped
+                floor = self.sign_start if self.sign_start is not None else self.still_from
+                self.rest_since = max(min(self.rest_since, self.still_from), floor)
 
         if self.state == "idle":
             if self.active_since is not None and f.t - self.active_since >= cfg.on_s:
@@ -256,7 +295,9 @@ class StreamingRecognizer:
                 result = {**result, "status": "duplicate", "sign": None}
             else:
                 self.last_word = (result["sign"], frame.t)
+        span = (float(segment.timestamps_ms[-1]) - float(segment.timestamps_ms[0])) / 1000
         stats = {**self.segmenter.last_end, "frames": segment.num_frames,
+                 "fps": round((segment.num_frames - 1) / span, 1) if span > 0 else 0.0,
                  "hand_rate": round(float(segment.hand_present.any(axis=1).mean()), 3),
                  "both_hands_rate": round(float(segment.hand_present.all(axis=1).mean()), 3),
                  "pose_rate": round(float(segment.pose_present.mean()), 3),

@@ -27,6 +27,9 @@ import { analyzeExpression, FACE_UNAVAILABLE_EXPRESSION, INITIAL_EXPRESSION } fr
 import MudraAvatarViewer from '../components/avatar/MudraAvatarViewer'
 
 const AUTO_SPEAK_PAUSE_MS = 2500
+// An unsure sign still adds its best guess at this confidence or more (below it the sign is dropped)
+const AUTO_ADD_MIN = 0.3
+const LOW_FPS = 15
 // Close-up framing: shoulders wider than this share of the frame, or lower than this height, leave no room for the hands
 const FRAMING = { maxShoulderWidth: 0.6, maxShoulderY: 0.72 }
 
@@ -66,6 +69,7 @@ export default function CommunicatePage() {
   const [suggestions, setSuggestions] = useState([])
   // Framing check: the model was trained on signers seen from the waist up
   const [framing, setFraming] = useState(null) // null | 'no_shoulders' | 'too_close'
+  const [trackerFps, setTrackerFps] = useState(0)
   const framingRef = useRef({ frames: 0, noShoulders: 0, tooClose: 0 })
   // Speak the sentence automatically after a pause in signing
   const [autoSpeak, setAutoSpeak] = useState(() => {
@@ -130,6 +134,10 @@ export default function CommunicatePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recognizedTokens, autoSpeak])
 
+  const replaceLastToken = useCallback((sign) => {
+    setRecognizedTokens((prev) => (prev.length ? [...prev.slice(0, -1), sign] : [sign]))
+  }, [])
+
   const commitToken = useCallback((sign) => {
     setRecognizedTokens((prev) => (prev.length > 0 && prev[prev.length - 1] === sign ? prev : [...prev, sign]))
   }, [])
@@ -143,23 +151,26 @@ export default function CommunicatePage() {
     signRecognizer.onPrediction = (p) => {
       if (isPausedRef.current) return
       const top = p.top_k?.[0]
-      const ok = p.status === 'ok'
-      // A real sign (hands seen for most of it) that the model put in "no sign": still offer its best guesses
-      const missed = p.status === 'no_sign' && (p.stats?.hand_rate ?? 0) >= 0.5 && (p.top_k || []).length > 0
+      // Fully automatic: a confident result is added; an unsure one is added too (its best guess) when the
+      // model gives it at least AUTO_ADD_MIN, with the runner-ups offered as optional one-tap replacements.
+      const confident = p.status === 'ok'
+      const unsure = !confident && (p.status === 'uncertain' || p.status === 'no_sign') &&
+        (p.stats?.hand_rate ?? 1) >= 0.5 && top && top.confidence >= AUTO_ADD_MIN
+      const added = confident ? { sign: p.sign, label: p.label } : unsure ? { sign: top.sign, label: top.label } : null
       setCurrentDetection({
-        sign: ok ? p.sign : 'UNKNOWN',
-        label: ok ? p.label : null,
+        sign: added ? added.sign : 'UNKNOWN',
+        label: added ? added.label : null,
         candidate: top ? top.label : null,
-        confidence: Math.round(p.confidence * 100),
-        isUnknown: !ok,
-        status: missed ? 'missed' : p.status,
+        confidence: Math.round((confident ? p.confidence : top?.confidence ?? 0) * 100),
+        isUnknown: !added,
+        status: confident ? 'ok' : unsure ? 'unsure' : (p.stats?.hand_rate ?? 0) >= 0.5 ? 'missed' : p.status,
         source: p.custom ? 'custom' : 'model',
-        metadata: ok ? findISLLexiconItem(p.sign) : null
+        metadata: added ? findISLLexiconItem(added.sign) : null
       })
-      // The server classified one complete sign (start -> end), so a confident result is committed once
-      if (ok) commitToken(p.sign)
-      // Uncertain: offer the top 3 instead of guessing (look-alike signs, unclear signing)
-      setSuggestions(p.status === 'uncertain' || missed ? (p.top_k || []).slice(0, 3) : [])
+      // The server classified one complete sign (start -> end), so each sign adds at most one word
+      if (added) commitToken(added.sign)
+      // Unsure: the other likely words can replace the one just added (optional, nothing to click otherwise)
+      setSuggestions(unsure ? (p.top_k || []).slice(1, 3) : [])
     }
     signRecognizer.onProvisional = (guess) => {
       if (isPausedRef.current) return
@@ -275,6 +286,14 @@ export default function CommunicatePage() {
   const [isListening, setIsListening] = useState(false)
   const recognitionRef = useRef(null)
 
+  const fpsShownAtRef = useRef(0)
+  function setTrackerFpsThrottled(fps) {
+    const now = performance.now()
+    if (now - fpsShownAtRef.current < 1000) return
+    fpsShownAtRef.current = now
+    setTrackerFps(Math.round(fps))
+  }
+
   // Framing check over ~2 s windows: shoulders visible, and room below them for the hands
   function updateFraming(results) {
     const f = framingRef.current
@@ -307,6 +326,7 @@ export default function CommunicatePage() {
 
     const hasHands = results.multiHandLandmarks && results.multiHandLandmarks.length > 0
     updateFraming(results)
+    if (results.fps) setTrackerFpsThrottled(results.fps)
     handTracker.drawPose(ctx, results.poseLandmarks, canvas.width, canvas.height, true)
     if (hasHands) {
       results.multiHandLandmarks.forEach((landmarks) => {
@@ -643,6 +663,12 @@ export default function CommunicatePage() {
                 </div>
               )}
 
+              {cameraActive && !framing && trackerFps > 0 && trackerFps < LOW_FPS && (
+                <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-30 w-[90%] max-w-md rounded-2xl bg-amber-400/95 px-4 py-2.5 text-center text-sm font-semibold text-amber-950 shadow-lg">
+                  Camera tracking is slow ({trackerFps} fps). Close other tabs or apps using the camera or GPU for smoother recognition.
+                </div>
+              )}
+
               {cameraActive && framing && (
                 <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-30 w-[90%] max-w-md rounded-2xl bg-amber-400/95 px-4 py-2.5 text-center text-sm font-semibold text-amber-950 shadow-lg">
                   {framing === 'no_shoulders'
@@ -662,7 +688,7 @@ export default function CommunicatePage() {
                   <div className="flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 text-xs font-mono text-mudra-peach-300">
                     <span>
                       {currentDetection.source === 'model'
-                        ? `Model${currentDetection.latencyMs ? ` · ${currentDetection.latencyMs} ms` : ''}`
+                        ? `Model · ${trackerFps} fps`
                         : currentDetection.source === 'manual'
                         ? 'Manual entry'
                         : `Rules · ${currentDetection.confidence ?? 0}%`}
@@ -791,6 +817,8 @@ export default function CommunicatePage() {
                       ? 'Added manually'
                       : currentDetection.source === 'custom' && !currentDetection.isUnknown
                       ? 'Your recorded word'
+                      : currentDetection.status === 'unsure'
+                      ? `Added, unsure · ${currentDetection.confidence}%`
                       : currentDetection.status === 'uncertain'
                       ? `Uncertain · ${currentDetection.confidence}%`
                       : currentDetection.status === 'signing'
@@ -823,12 +851,12 @@ export default function CommunicatePage() {
                 )}
                 {suggestions.length > 0 && (
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                    <span className="text-mudra-indigo-600">{currentDetection.status === 'missed' ? 'Tap the word you signed:' : 'Did you mean:'}</span>
+                    <span className="text-mudra-indigo-600">Added "{currentDetection.label}". Wrong? Replace with:</span>
                     {suggestions.map((s) => (
                       <button
                         key={s.sign}
                         type="button"
-                        onClick={() => { commitToken(s.sign); setSuggestions([]) }}
+                        onClick={() => { replaceLastToken(s.sign); setSuggestions([]) }}
                         className="px-2.5 py-1 rounded-full border border-mudra-lavender-300 bg-white font-semibold text-mudra-indigo-900 hover:bg-mudra-lavender-50"
                       >
                         {s.label} <span className="font-mono text-mudra-indigo-400">{Math.round(s.confidence * 100)}%</span>

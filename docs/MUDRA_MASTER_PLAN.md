@@ -373,3 +373,21 @@ Phase 3 candidate: BiLSTM without velocity (best mean, best calibration); MLP+po
   marked as not recognised from the camera yet; the sentence is spoken automatically 2.5 s after the last word
   (toggle).
 - Backend logs one line per live sign (decision summary, never landmarks) to experiments/logs/stream_events.jsonl.
+
+### 2026-10-06: First real live session analysed (27 signs from the stream log)
+- 25 of 27 signs ended as "no sign" (background 0.69-0.998), 2 as uncertain; 20 of 27 hit the 6 s maximum
+  (hands never rested), and the camera delivered about 6 frames/s (training videos: 25-30).
+- Frame rate: the browser ran hand + pose + face landmarkers on every frame. Now pose runs every other frame, face
+  cues at 5 fps (was 12), the camera asks for 30 fps, and the page shows the tracking rate with a warning
+  below 15 fps. The sign log records fps per sign.
+- "Hands held still" end-of-sign rule (`still_s`, `still_speed` in SegmenterConfig) added and tuned on validation
+  streams in three framings (normal, close-up, close-up with hands resting in view) at 12 fps: chosen 0.8 s,
+  but on held-out test streams it lowered correct words by 3-7 points (it splits signs that contain a pause); a
+  1.2 s / 4 s-cap safety net also lost 1-5 points on validation. Left off. The simulations do not reproduce the
+  6 s segments, so the user's own recordings are needed to find their cause.
+- Velocity features (v5, v4 recipe + velocity): validation 96.6% vs 96.8%, test real video 95.4% vs 97.0%.
+  Not deployed; v4 stays.
+- Communicate page adds words fully automatically: a confident sign is added; an unsure one adds its best guess
+  when the model gives it >= 30%, with the runner-ups as optional one-tap replacements. On held-out test
+  streams this moves missed signs into correct ones (real video, close-up: correct 78.7% -> 85.1% with the
+  still rule) at the cost of 1-2 points more wrong words.
