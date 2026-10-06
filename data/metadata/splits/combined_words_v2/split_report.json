@@ -1,0 +1,27 @@
+{
+  "base": "combined_words",
+  "added": {
+    "train": 1838,
+    "val": 336,
+    "test": 498
+  },
+  "skipped_flagged": 109,
+  "unmatched": 14,
+  "unmatched_examples": [
+    "C:\\Users\\ADNAN\\Desktop\\Mudra_Claude_Handoff\\data\\raw\\include_video\\Home\\25. Chair\\MVI_8754.MP4",
+    "C:\\Users\\ADNAN\\Desktop\\Mudra_Claude_Handoff\\data\\raw\\include_video\\Home\\25. Chair\\MVI_8755.MP4",
+    "C:\\Users\\ADNAN\\Desktop\\Mudra_Claude_Handoff\\data\\raw\\include_video\\Home\\25. Chair\\MVI_8756.MP4",
+    "C:\\Users\\ADNAN\\Desktop\\Mudra_Claude_Handoff\\data\\raw\\include_video\\Home\\29. Door\\MVI_8773.MP4",
+    "C:\\Users\\ADNAN\\Desktop\\Mudra_Claude_Handoff\\data\\raw\\include_video\\Home\\39. Key\\MVI_8814.MP4",
+    "C:\\Users\\ADNAN\\Desktop\\Mudra_Claude_Handoff\\data\\raw\\include_video\\Home\\39. Key\\MVI_8815.MP4",
+    "C:\\Users\\ADNAN\\Desktop\\Mudra_Claude_Handoff\\data\\raw\\include_video\\Home\\43. Lock\\MVI_8831.MP4",
+    "C:\\Users\\ADNAN\\Desktop\\Mudra_Claude_Handoff\\data\\raw\\include_video\\Home\\42. Paper\\MVI_8828.MP4",
+    "C:\\Users\\ADNAN\\Desktop\\Mudra_Claude_Handoff\\data\\raw\\include_video\\Home\\34. Pen\\MVI_8795.MP4",
+    "C:\\Users\\ADNAN\\Desktop\\Mudra_Claude_Handoff\\data\\raw\\include_video\\Home\\33. Pencil\\MVI_8789.MP4"
+  ],
+  "totals": {
+    "train": 5588,
+    "val": 1040,
+    "test": 1495
+  }
+}

@@ -287,3 +287,22 @@ Phase 3 candidate: BiLSTM without velocity (best mean, best calibration); MLP+po
 - Held-out test streams (with fidgets): INCLUDE 85.2% correct / 1.8% wrong / 0 extra; team words 98.9% / 0% / 0;
   idle false words 0.10/min (INCLUDE) and 0 (team). Browser-client replay: 22/24 correct, 0 wrong.
 - UI: live "Looks like X…" while signing (never committed), "Did you mean" top-3 buttons when uncertain.
+
+### 2026-10-06: INCLUDE original videos added (C:\ISL\ISLTrainingData, 35 GB, 29 zips)
+- 2,795 INCLUDE videos (180 words, 10 categories) re-extracted with MediaPipe Tasks, i.e. the same landmark pipeline
+  the webcam uses. 109 clips set aside (hands visible in under half the frames), 14 had no twin in the pose release.
+- `align_include_video.py`: each video takes the split and group of its pose-release twin (matched on
+  category/word/file stem), so no recording crosses splits. New split set `combined_words_v2`: train 5,588 /
+  val 1,040 / test 1,495.
+- Domain gap found: the deployed model (trained on the OpenHands pose release) scored only 71.5% clip-level and
+  41.8% correct / 7.0% wrong on continuous streams of the re-extracted videos. Expect this to have been the live
+  webcam experience.
+- Retrained with identical settings (`combined_v2_bg25_fidget_bilstm`): INCLUDE pose test 96.0% (was 96.2%),
+  re-extracted video test 96.8% (was 71.5%), team words 99.4% (was 100%). Decision settings re-tuned on validation
+  streams: threshold 0.8, tta 1.
+- Held-out test streams, deployed -> new: INCLUDE pose 85.2% -> 82.0% correct (wrong 1.8% -> 2.0%);
+  team words 98.9% -> 97.8% (wrong 0% -> 0%); re-extracted video 41.8% -> 78.5% correct, wrong 7.0% -> 2.6%;
+  idle false words 0.10/min -> 0; extra words 0.
+- Deployed as `isl_mudra_combined_v2_bilstm`; the previous model is kept in `app/backend/models/`.
+- Still open: 18.9% of real-video signs are missed (left uncertain) on streams despite 96.8% clip accuracy, so the
+  segment boundaries or the confidence threshold on real video are the next thing to look at.

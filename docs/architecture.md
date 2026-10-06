@@ -9,7 +9,7 @@
 | Browser | `app/frontend/src/pages/CommunicatePage.jsx` | Shows Signing… and "Looks like X" states, adds words, offers top-3 choices when uncertain, speaks sentences |
 | Backend | `app/backend/mudra_api/app.py` | FastAPI: `/health`, `/labels`, `/model`, `/predict` (one clip), `/stream` (live) |
 | Shared | `training/src/mudra_ml/streaming.py` | SignSegmenter (resting → signing → ended) and StreamingRecognizer (whole-sign classification, smoothing, thresholds, cooldown). The live API and the benchmarks use the same code |
-| Model | `app/backend/models/isl_mudra_combined_bilstm` | Landmark MLP → BiLSTM → attention pooling; 314 words plus a "no sign" class |
+| Model | `app/backend/models/isl_mudra_combined_v2_bilstm` | Landmark MLP → BiLSTM → attention pooling; 314 words plus a "no sign" class |
 
 When the backend is offline, the Communicate page falls back to the rule-based matcher in
 `islClassifier.js` (8 static signs). The Practice page always uses that rule engine for its

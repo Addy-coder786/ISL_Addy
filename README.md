@@ -11,7 +11,7 @@ Only body and hand landmark coordinates leave the browser, never camera images.
 | Area | State |
 |---|---|
 | Web app (Home, Learn, Practice, Communicate, Progress) | Working; avatar demonstrates 26 letters and 13 words |
-| Live recognition (Communicate) | Working: trained model, 314 words, sign start/end detection |
+| Live recognition (Communicate) | Working: trained model, 314 words, sign start/end detection; trained on webcam-style landmarks |
 | Data pipeline (MediaPipe landmarks, leakage-safe splits) | Working: INCLUDE + team data processed |
 | Real-time Phase 1: sign start/end detection | Done |
 | Real-time Phase 2: smoothing, commit rules, idle robustness | Done |
@@ -24,20 +24,24 @@ movement. Settings were chosen on validation streams; these are held-out test nu
 
 | Source | Correct | Wrong | Missed | Extra words | False words while idle |
 |---|---|---|---|---|---|
-| INCLUDE (816 signs) | 85.2% | 1.8% | 13.0% | 0 | 0.10 / min |
-| Team words (181 signs) | 98.9% | 0.0% | 1.1% | 0 | 0 |
+| INCLUDE pose release (816 signs) | 82.0% | 2.0% | 16.1% | 0 | 0 |
+| INCLUDE original videos, MediaPipe landmarks (498 signs) | 78.5% | 2.6% | 18.9% | 0 | 0 |
+| Team words (181 signs) | 97.8% | 0.0% | 2.2% | 0 | 0 |
 
-Browser client replay through the live WebSocket: 22 of 24 correct, 0 wrong.
+The second row is the closest proxy for the webcam: the same landmark pipeline the browser runs.
+The previous model, trained on the pose release only, scored 41.8% correct / 7.0% wrong on that row.
 
 Clip-level accuracy (complete pre-cut clips):
-- INCLUDE 263 words: 96.7% (mean of 3 seeds). Published references: 85.6% (original paper),
+- INCLUDE 263 words, pose release: 96.0%. Published references: 85.6% (original paper),
   93.5% (OpenHands SL-GCN), 97.7% (HWGAT).
+- INCLUDE original videos re-extracted with MediaPipe: 96.8% (previous model: 71.5%).
 - Team words, on a recording day held out from training: 98.0%.
 - Earlier rule-based / Random-Forest system: about 44%.
 
 **Limits:**
 - No dataset has signer IDs, so none of these numbers measure accuracy on new people.
 - The idle movements in the benchmark are synthetic.
+- About 1 in 5 real-video signs is left uncertain on streams (the model offers its top 3 instead).
 - The app's own words NAMASTE, WATER, HELP, YES, NO, GOODBYE, HOME and PERSON have no training data yet.
 
 ## How it works
@@ -58,7 +62,7 @@ UI: Signing... / "Looks like X" <---- (3-cut smoothing, threshold,           upp
 3. **Segmentation:** a sign starts when hands are raised or moving, and ends after 0.4 s of rest.
    Tuned on validation streams (`training/configs/streaming.json`).
 4. **Decision:** the whole sign is classified once. A "no sign yet" class covers rest, partial
-   signs and fidgets; a word is added at 70% confidence or more; otherwise the top 3 are offered.
+   signs and fidgets; a word is added at 80% confidence or more; otherwise the top 3 are offered.
 
 ## Quick start (Windows)
 
@@ -109,7 +113,7 @@ Tests: `pytest training` (44) and `pytest app/backend/tests` (11).
 
 ## Data and licences
 
-- **INCLUDE** (Sridhar et al., ACM MM 2020): pose release via AI4Bharat OpenHands, CC-BY-4.0.
+- **INCLUDE** (Sridhar et al., ACM MM 2020): pose release via AI4Bharat OpenHands and the original videos (Zenodo), CC-BY-4.0.
 - **Team ISL recordings** (61 words, 101 sentences): provided by the MUDRA team. Source and
   licence to be confirmed before any public release.
 - Raw videos and extracted landmarks are not committed; see `data/README.md` for the layout.
