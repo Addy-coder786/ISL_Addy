@@ -174,16 +174,29 @@ class ModelBundle:
         self.model.load_state_dict(torch.load(Path(model_dir) / "model.pt", map_location=self.device, weights_only=True))
         self.model.to(self.device).eval()
 
-    @torch.no_grad()
-    def probs(self, seqs: list[LandmarkSequence], width: int, height: int) -> np.ndarray:
+    def _features(self, seqs: list[LandmarkSequence], width: int, height: int) -> torch.Tensor:
         feats = []
         for s in seqs:
             s.meta = {**s.meta, "width": width, "height": height}
             x = np.clip(sequence_features(s, self.cfg), -self.cfg.clip_value, self.cfg.clip_value)
             feats.append((x - self.mean) / self.std)
-        logits = self.model(torch.from_numpy(np.stack(feats)).to(self.device)).float().cpu().numpy() / self.temperature
+        return torch.from_numpy(np.stack(feats)).to(self.device)
+
+    @torch.no_grad()
+    def probs(self, seqs: list[LandmarkSequence], width: int, height: int) -> np.ndarray:
+        return self.probs_and_embeddings(seqs, width, height)[0]
+
+    @torch.no_grad()
+    def embed(self, seqs: list[LandmarkSequence], width: int, height: int) -> np.ndarray:
+        """Pooled sequence representation [N, D] (input of the classifier head), for few-shot matching."""
+        return self.probs_and_embeddings(seqs, width, height)[1]
+
+    @torch.no_grad()
+    def probs_and_embeddings(self, seqs: list[LandmarkSequence], width: int, height: int) -> tuple[np.ndarray, np.ndarray]:
+        emb = self.model.encode(self._features(seqs, width, height))
+        logits = self.model.head(emb).float().cpu().numpy() / self.temperature
         p = np.exp(logits - logits.max(axis=1, keepdims=True))
-        return p / p.sum(axis=1, keepdims=True)
+        return p / p.sum(axis=1, keepdims=True), emb.float().cpu().numpy()
 
     def decide(self, p: np.ndarray, top_k: int = 3, threshold: float | None = None, margin: float = 0.0) -> dict:
         """Whole-sign decision: background -> no_sign; below threshold -> uncertain; else ok."""
@@ -205,8 +218,9 @@ class ModelBundle:
 class StreamingRecognizer:
     """Segmenter + whole-sign classification. Feed frames, receive events."""
 
-    def __init__(self, bundle: ModelBundle, cfg: SegmenterConfig, width: int, height: int):
+    def __init__(self, bundle: ModelBundle, cfg: SegmenterConfig, width: int, height: int, custom=None):
         self.bundle, self.width, self.height = bundle, width, height
+        self.custom = custom  # optional mudra_ml.fewshot.CustomWordBank
         self.segmenter = SignSegmenter(cfg, width, height)
         self.cfg = cfg
         self.threshold = cfg.commit_threshold if cfg.commit_threshold is not None else bundle.threshold
@@ -228,8 +242,11 @@ class StreamingRecognizer:
         if segment is None:
             return {"event": "sign_ended", "state": "idle", "result": {"status": "no_sign", "sign": None, "confidence": 0.0, "top_k": []}}
         cuts = self.segmenter.variants(*self.segmenter.last_bounds, self.cfg.tta) or [segment]
-        probs = self.bundle.probs(cuts, self.width, self.height).mean(axis=0)  # smoothing over cuts
+        probs, emb = self.bundle.probs_and_embeddings(cuts, self.width, self.height)
+        probs = probs.mean(axis=0)  # smoothing over cuts
         result = self.bundle.decide(probs, threshold=self.threshold, margin=self.cfg.margin)
+        if self.custom is not None and len(self.custom):
+            result = self.custom.decide(emb.mean(axis=0), result) or result
         if result["status"] == "ok":
             if self.last_word and self.last_word[0] == result["sign"] and frame.t - self.last_word[1] < self.cfg.cooldown_s:
                 result = {**result, "status": "duplicate", "sign": None}

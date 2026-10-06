@@ -38,8 +38,22 @@ Clip-level accuracy (complete pre-cut clips):
 - Team words, on a recording day held out from training: 98.0%.
 - Earlier rule-based / Random-Forest system: about 44%.
 
+New words from recordings (few-shot, no retraining): tested on 25 team words the model never saw,
+from k recorded examples each (held-out test clips, averaged over 5 draws).
+
+| Examples per word | Recognised | Wrong word | Missed | Known words taken over |
+|---|---|---|---|---|
+| 1 | 70.1% | 12.0% | 17.9% | 0.10% |
+| 3 | 79.5% | 11.5% | 9.1% | 0.14% |
+| 5 | 81.6% | 10.9% | 7.5% | 0.14% |
+
+Almost all wrong words (10.1-10.7 points) are the model confidently reading the new sign as a
+known look-alike; without custom words that happens for 18.7% of them. Retraining with the
+recordings is the real fix, so recordings are stored in the training format.
+
 **Limits:**
 - No dataset has signer IDs, so none of these numbers measure accuracy on new people.
+  Recordings made in the app carry the signer's name, so they can provide that test.
 - The idle movements in the benchmark are synthetic.
 - The app's own words NAMASTE, WATER, HELP, YES, NO, GOODBYE, HOME and PERSON have no training data yet.
 
@@ -68,8 +82,10 @@ UI: Signing... / "Looks like X" <---- (3-cut smoothing, threshold,           upp
 1. Run `start_all.bat`. It creates the Python environment, installs dependencies and starts both servers.
 2. Open http://localhost:3000, then **Communicate -> Start Camera**.
 3. Sign one word from start to finish, then lower your hands. The word is added when the sign ends.
+4. To teach it a new word, open **Record**, enter your name, pick or type the word and record it
+   5 times. The word works in Communicate straight away and is saved for the next training run.
 
-Backend: http://localhost:8000 (`/docs`, `/health`, `/labels`, `/predict`, WebSocket `/stream`).
+Backend: http://localhost:8000 (`/docs`, `/health`, `/labels`, `/predict`, `/recordings`, WebSocket `/stream`).
 Requires Python 3.12+ (tested on 3.14) and Node 20+. An NVIDIA GPU is optional (training only).
 
 ## Repository layout
@@ -119,11 +135,11 @@ Tests: `pytest training` (44) and `pytest app/backend/tests` (11).
 
 ## Roadmap
 
-Phase 3 (next):
-- add datasets with more signers (FDMSE-ISL, CISLR, pre-training on large pose corpora)
-- run a signer-independent test
-- add few-shot new words from 1-5 example videos
-- add fingerspelling from the alphabet images
-- build an in-app recording tool for the app's missing words
+Phase 3:
+- done: fewer missed signs on real video (segment-style training crops)
+- done: in-app recording tool and few-shot new words
+- next: signer-independent test (app recordings by several people, or FDMSE-ISL / CISLR)
+- next: retrain with app recordings once each new word has 5 or more
+- next: fingerspelling from the alphabet images
 
 Details are in `docs/MUDRA_MASTER_PLAN.md`.

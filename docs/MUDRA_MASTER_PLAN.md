@@ -320,3 +320,19 @@ Phase 3 candidate: BiLSTM without velocity (best mean, best calibration); MLP+po
   team words 97.8% -> 97.8% (wrong 0%). Clip-level: INCLUDE pose 96.5%, real video 97.8%, team words 99.4%.
   Decision settings unchanged after re-tuning on validation (threshold 0.8, tta 1). Deployed as
   `isl_mudra_combined_v3_bilstm`.
+
+### 2026-10-06: Real-time Phase 3, step 3: recording tool and few-shot new words
+- Record page (frontend): name, word (the app's 8 missing words or any typed word), 3 s countdown with hands
+  down, 2-5 s capture, quality feedback (too short, hands out of view, shoulders not visible), per-word counts
+  with signers, delete bad takes. Landmarks only.
+- Backend `/recordings` (GET / POST / DELETE): `.npz` in the training format + `data/metadata/manifest_app.csv`,
+  `signer_id` = signer's name, group = signer + day. Words the model does not know become custom words at once.
+- Few-shot (`mudra_ml/fewshot.py`): prototype = mean normalised embedding (pooled sequence representation) of a
+  word's recordings; a sign is matched when cosine similarity >= 0.6 and the model's best known word is below 0.95
+  confidence (both chosen on validation, `training/configs/fewshot.json`).
+- Honest test: model trained with 25 team words held out completely (`combined_words_v2_fewshot`, known-word
+  test accuracy 97.2%). Held-out test clips, k examples per new word, 5 draws: k=1 70.1% recognised / 12.0% wrong;
+  k=3 79.5% / 11.5%; k=5 81.6% / 10.9%. Known words taken over by a custom word: 0.10-0.14%. Wrong words are
+  mostly (10.1-10.7 points) the model confidently reading the new sign as a known look-alike, which happens for
+  18.7% of new signs without custom words; retraining with the recordings is the fix.
+- Not yet verified: the Record page with a real camera and person (frontend builds; API covered by tests).

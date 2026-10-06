@@ -29,6 +29,14 @@ MediaPipe models live in `training/assets/mediapipe/` (not committed). Download 
 
 Combine sources by passing several manifests to `make_splits.py`.
 
+Signs recorded in the app (Record page) are already landmarks: they are in
+`data/metadata/manifest_app.csv`, grouped by session (signer + day) with the signer's name in
+`signer_id`. Add them to a training run with
+`make_splits.py --manifests ... data/metadata/manifest_app.csv --name <name>`.
+
+Few-shot benchmark for new words: `eval_fewshot.py --model <model trained without some words>
+--split-dir <split set with novel.csv>`; it tunes `training/configs/fewshot.json` on validation.
+
 ## Phase 2: models, training, evaluation
 
 | Task | Command |

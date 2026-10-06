@@ -95,7 +95,7 @@ export default function CommunicatePage() {
         confidence: Math.round(p.confidence * 100),
         isUnknown: !ok,
         status: p.status,
-        source: 'model',
+        source: p.custom ? 'custom' : 'model',
         metadata: ok ? findISLLexiconItem(p.sign) : null
       })
       // The server classified one complete sign (start -> end), so a confident result is committed once
@@ -650,6 +650,8 @@ export default function CommunicatePage() {
                   }`}>
                     {currentDetection.source === 'manual'
                       ? 'Added manually'
+                      : currentDetection.source === 'custom' && !currentDetection.isUnknown
+                      ? 'Your recorded word'
                       : currentDetection.status === 'uncertain'
                       ? `Uncertain · ${currentDetection.confidence}%`
                       : currentDetection.status === 'signing'

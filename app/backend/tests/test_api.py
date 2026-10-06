@@ -185,3 +185,47 @@ def test_segmenter_states():
             events.append((ev, round(t, 2), None if segment is None else segment.hand_present.shape[0]))
     assert [e[0] for e in events] == ["sign_started", "sign_ended"]
     assert 1.0 <= events[0][1] <= 1.2 and events[1][1] <= 2.3
+
+
+@pytest.mark.skipif(not (COMBINED_DIR / "model.pt").exists() or not COMBINED_TEST.exists(), reason="combined model/data absent")
+def test_recordings_store_and_custom_words(tmp_path):
+    c = TestClient(create_app(Settings(model_dir=COMBINED_DIR, device="cpu", recordings_dir=tmp_path)))
+    with COMBINED_TEST.open(newline="", encoding="utf-8") as f:
+        rows = [r for r in csv.DictReader(f) if r["source"] == "islwords" and float(r["any_hand_rate"]) > 0.9][:3]
+    ids = []
+    for i, r in enumerate(rows):
+        req = clip_to_request(PROJECT_ROOT / r["landmarks_path"])
+        frames = [{"t": k / 30, **fr} for k, fr in enumerate(req["frames"])]
+        body = c.post("/recordings", json={"label": "my new word", "signer": "Test User", "width": req["width"],
+                                           "height": req["height"], "frames": frames}).json()
+        assert body["label"] == "MY_NEW_WORD" and body["signer"] == "test_user" and body["quality_flag"] == ""
+        assert body["custom_active"] and not body["in_model"] and body["label_count"] == i + 1
+        ids.append(body["sample_id"])
+    summary = c.get("/recordings").json()
+    assert summary["total"] == 3 and summary["custom_words"][0] == {"sign": "MY_NEW_WORD", "label": "My new word", "examples": 3}
+    assert c.get("/health").json()["custom_words"] == 1
+    manifest = (tmp_path / "metadata" / "manifest_app.csv").read_text(encoding="utf-8")
+    assert manifest.count("app:session:test_user:") == 3 and manifest.count("app:test_user") == 3
+    # a recording of a word the model knows is stored for retraining but is not a custom word
+    req = clip_to_request(PROJECT_ROOT / rows[0]["landmarks_path"])
+    known = c.post("/recordings", json={"label": rows[0]["label"], "width": req["width"], "height": req["height"],
+                                        "frames": [{"t": k / 30, **fr} for k, fr in enumerate(req["frames"])]}).json()
+    assert known["in_model"] and not known["custom_active"]
+    for sid in ids:
+        assert c.delete(f"/recordings/{sid}").status_code == 200
+    assert c.get("/health").json()["custom_words"] == 0
+    assert c.delete("/recordings/missing").status_code == 404
+    assert c.post("/recordings", json={"label": "x", "width": 640, "height": 480, "frames": [{"t": 0}] * 3}).status_code == 422
+
+
+def test_custom_word_bank_decision():
+    from mudra_ml.fewshot import CustomWordBank, FewShotConfig
+
+    bank = CustomWordBank(FewShotConfig(min_similarity=0.8, max_model_confidence=0.8, margin=0.05))
+    bank.set_examples({"A": np.array([[1, 0, 0], [0.9, 0.1, 0]]), "B": np.array([[0, 1, 0]])})
+    unsure = {"status": "uncertain", "sign": None, "confidence": 0.4, "top_k": [{"sign": "X", "confidence": 0.4}]}
+    sure = {"status": "ok", "sign": "X", "confidence": 0.95, "top_k": [{"sign": "X", "confidence": 0.95}]}
+    assert bank.decide(np.array([1.0, 0.05, 0]), unsure)["sign"] == "A"
+    assert bank.decide(np.array([1.0, 0.05, 0]), sure) is None  # the model is confident about a known word
+    assert bank.decide(np.array([0, 0, 1.0]), unsure) is None  # unlike every prototype
+    assert bank.decide(np.array([1.0, 1.0, 0]), unsure) is None  # A and B equally close
