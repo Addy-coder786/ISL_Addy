@@ -36,7 +36,7 @@ class SignRecognizer {
     this.ws = null
     this.started = false
     this.onPrediction = null // whole-sign result when a sign ends
-    this.onActivity = null // 'signing' when a sign starts, 'idle' after it ends
+    this.onActivity = null // 'signing' when a sign starts, 'ended' when it is classified, 'idle' when it was too short
     this.onProvisional = null // live best guess while signing (display only)
     this.onStatusChange = null
   }
@@ -83,8 +83,8 @@ class SignRecognizer {
       else if (ev.event === 'provisional') this.onProvisional?.(ev.guess)
       else if (ev.event === 'too_short') this.onActivity?.('idle')
       else if (ev.event === 'sign_ended') {
-        this.onActivity?.('idle')
-        this.onPrediction?.(ev.result)
+        this.onActivity?.('ended')
+        this.onPrediction?.({ ...ev.result, stats: ev.stats })
       } else if (ev.event === 'error') this._setStatus('offline', ev.detail)
     }
     ws.onclose = () => {

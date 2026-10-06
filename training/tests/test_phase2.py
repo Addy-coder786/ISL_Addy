@@ -222,3 +222,32 @@ def test_segment_crop_uses_active_span(split_dir):
             win = ds._segment_window(i)
             assert win is not None and 0 <= win[0] and win[0] + win[1] <= n and win[1] >= 4
     assert ds[0][0].shape == (8, cfg.feature_dim)
+
+
+def test_closeup_view_keeps_geometry_and_hides_low_hands():
+    from mudra_ml.datasets.camera import WEBCAM, CloseupParams, closeup_view
+    from mudra_ml.preprocessing.sequence import LandmarkSequence
+
+    n = 4
+    pose = np.zeros((n, 33, 4), np.float32); pose[..., 3] = 1
+    pose[:, 0, :2] = [0.5, 0.3]  # nose
+    pose[:, 11, :2], pose[:, 12, :2] = [0.6, 0.45], [0.4, 0.45]  # shoulders, 0.2 wide
+    hands = np.zeros((n, 2, 21, 3), np.float32)
+    hands[:, 0, :, :2] = [0.5, 0.40]  # left hand at the chin: stays in view
+    hands[:, 1, :, :2] = [0.5, 0.90]  # right hand at the hips: below a close-up frame
+    present = np.ones((n, 2), bool)
+    seq = LandmarkSequence(hands, present, present.astype(np.float32), pose, np.ones(n, bool), np.arange(n),
+                           {"width": 1000, "height": 1000})
+    view = closeup_view(seq, CloseupParams(above_nose=0.5, below_shoulders=0.5, shift=0.0))
+    assert (view.meta["width"], view.meta["height"]) == WEBCAM
+    assert view.hand_present[:, 0].all() and not view.hand_present[:, 1].any()
+    sx = view.pose[0, 11, 0] - view.pose[0, 12, 0]
+    sy = view.pose[0, 11, 1] - view.pose[0, 0, 1]
+    assert abs(sx * WEBCAM[0] / (sy * WEBCAM[1]) - 0.2 / 0.15) < 1e-3  # proportions unchanged
+
+
+def test_closeup_augmentation_runs(split_dir):
+    classes = json.loads((split_dir / "classes.json").read_text())
+    cfg = FeatureConfig(seq_len=8)
+    ds = ISLLandmarkDataset(split_dir / "train.csv", classes, cfg, AugmentConfig(closeup_prob=1.0, segment_crop_prob=1.0), seed=0)
+    assert all(ds[i][0].shape == (8, cfg.feature_dim) for i in range(len(ds)))

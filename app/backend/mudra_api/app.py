@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import time
 
 import numpy as np
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -93,6 +95,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         card["active_threshold"] = rec.threshold
         return card
 
+    events_log = settings.events_log
+
+    def log_sign(event: dict) -> None:
+        """One line per finished sign (decision summary only, never landmarks) for diagnosing live use."""
+        res = event.get("result") or {}
+        line = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "event": event["event"], **(event.get("stats") or {}),
+                "status": res.get("status"), "sign": res.get("sign"), "custom": bool(res.get("custom")),
+                "top": [(c["sign"], round(c["confidence"], 3)) for c in res.get("top_k", [])],
+                "background": round(float(res.get("background", 0.0)), 3)}
+        try:
+            events_log.parent.mkdir(parents=True, exist_ok=True)
+            with events_log.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(line) + "\n")
+        except OSError:
+            pass
+
     @app.websocket("/stream")
     async def stream(ws: WebSocket) -> None:
         """Live recognition. Client sends {"type":"start","width","height"} then
@@ -113,6 +131,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if msg.get("type") != "frame" or session is None:
                     continue
                 event = session.push(parse_frame(msg))
+                if event and event["event"] in ("sign_ended", "too_short"):
+                    log_sign(event)
                 if event:
                     if "guess" in event:
                         event["guess"]["label"] = readable(event["guess"]["sign"])

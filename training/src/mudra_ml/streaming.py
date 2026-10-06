@@ -138,6 +138,7 @@ class SignSegmenter:
         end = self.rest_since if ended else f.t
         start = self.sign_start
         self.state, self.sign_start, self.active_since = "idle", None, None
+        self.last_end = {"reason": "rest" if ended else "max_length", "duration_s": round(end - start, 3)}
         if end - start < cfg.min_sign_s:
             return "too_short", None
         self.last_bounds = (start - cfg.pad_pre_s, end + cfg.pad_post_s)
@@ -211,8 +212,9 @@ class ModelBundle:
             status = "uncertain"
         else:
             status = "ok"
+        bg = self.classes.index(BACKGROUND_LABEL) if BACKGROUND_LABEL in self.classes else None
         return {"status": status, "sign": self.classes[best] if status == "ok" else None,
-                "confidence": float(p[best]), "top_k": top}
+                "confidence": float(p[best]), "top_k": top, "background": float(p[bg]) if bg is not None else 0.0}
 
 
 class StreamingRecognizer:
@@ -238,6 +240,8 @@ class StreamingRecognizer:
                     return {"event": "provisional", "state": "signing", "guess": guess["top_k"][0]}
             return None
         if event != "sign_ended":
+            if event == "too_short":
+                return {"event": event, "state": self.segmenter.state, "stats": self.segmenter.last_end}
             return {"event": event, "state": self.segmenter.state} if event else None
         if segment is None:
             return {"event": "sign_ended", "state": "idle", "result": {"status": "no_sign", "sign": None, "confidence": 0.0, "top_k": []}}
@@ -252,5 +256,10 @@ class StreamingRecognizer:
                 result = {**result, "status": "duplicate", "sign": None}
             else:
                 self.last_word = (result["sign"], frame.t)
-        return {"event": "sign_ended", "state": "idle", "result": result,
+        stats = {**self.segmenter.last_end, "frames": segment.num_frames,
+                 "hand_rate": round(float(segment.hand_present.any(axis=1).mean()), 3),
+                 "both_hands_rate": round(float(segment.hand_present.all(axis=1).mean()), 3),
+                 "pose_rate": round(float(segment.pose_present.mean()), 3),
+                 "body_reference": self.segmenter.body is not None}
+        return {"event": "sign_ended", "state": "idle", "result": result, "stats": stats,
                 "t0": float(segment.timestamps_ms[0]) / 1000, "t1": float(segment.timestamps_ms[-1]) / 1000}

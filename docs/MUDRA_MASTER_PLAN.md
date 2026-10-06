@@ -355,3 +355,21 @@ Phase 3 candidate: BiLSTM without velocity (best mean, best calibration); MLP+po
   Kept 0.8 for the deployed model (which is trained on all sessions); a stricter "new user" setting is an
   option for the UI.
 - Deployed model unchanged (v3, all sessions). New augmentation option `pose_dropout` kept in the code (off).
+
+### 2026-10-06: Live-use fix: close-up webcams, missed signs, sentence flow
+- User report: signs were not added to the sentence ("Scanning..."). Cause: a laptop webcam frames the signer from
+  the chin to the chest, unlike any training video (waist up, standing back). Simulated close-up view
+  (`datasets/camera.py`: virtual 640x480 crop around head and shoulders, hands mostly outside the frame are not
+  detected, out-of-frame pose points get low visibility) dropped v3 on test streams from 92.6% to 71.3% correct
+  (real video), 97.8% -> 72.4% (team words), almost all of it missed signs.
+- v4 (`combined_v4_closeup_bilstm`): v3 recipe + close-up views for 40% of training samples
+  (`augment.closeup_prob`). Threshold re-tuned on validation streams: 0.6, tta 3. Held-out test streams,
+  normal framing: real video 92.0% / 2.4% wrong, pose release 91.9% / 2.5%, team words 98.9% / 0%.
+  Close-up framing: real video 87.6% / 3.2%, pose release 89.0% / 2.7%, team words 90.6% / 1.7% (v3: 65-72%).
+  Clip-level unchanged (96.3% / 97.0% / 99.4%). Deployed as `isl_mudra_combined_v4_bilstm`.
+- Communicate page: "Didn't catch that" + top-3 choices when a real sign is classified as no sign; no more
+  getting stuck on "Signing..." after a too-short movement; framing warning when the shoulders are not visible
+  or the camera is too close; "What can I sign?" searchable list of the model's words; the 8 quick-add words are
+  marked as not recognised from the camera yet; the sentence is spoken automatically 2.5 s after the last word
+  (toggle).
+- Backend logs one line per live sign (decision summary, never landmarks) to experiments/logs/stream_events.jsonl.

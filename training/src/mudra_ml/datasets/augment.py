@@ -28,6 +28,7 @@ class AugmentConfig:
     segment_crop_prob: float = 0.0
     segment_config: str = "training/configs/streaming.json"  # segmenter settings used for the crop
     segment_jitter_s: float = 0.15
+    closeup_prob: float = 0.0  # view the clip through a simulated close-up webcam (datasets/camera.py)
     pose_dropout: float = 0.0  # probability of hiding the upper-body pose block (hands only), against body-shape shortcuts
 
     @classmethod

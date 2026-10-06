@@ -24,11 +24,20 @@ movement. Settings were chosen on validation streams; these are held-out test nu
 
 | Source | Correct | Wrong | Missed | Extra words | False words while idle |
 |---|---|---|---|---|---|
-| INCLUDE pose release (816 signs) | 91.3% | 1.7% | 7.0% | 0 | 0 |
-| INCLUDE original videos, MediaPipe landmarks (498 signs) | 92.6% | 1.8% | 5.6% | 0 | 0 |
-| Team words (181 signs) | 97.8% | 0.0% | 2.2% | 0 | 0 |
+| INCLUDE pose release (816 signs) | 91.9% | 2.5% | 5.6% | 0 | 0 |
+| INCLUDE original videos, MediaPipe landmarks (498 signs) | 92.0% | 2.4% | 5.6% | 0 | 0 |
+| Team words (181 signs) | 98.9% | 0.0% | 1.1% | 0.006 / sign | 0 |
 
-The second row is the closest proxy for the webcam: the same landmark pipeline the browser runs.
+Same signs seen through a simulated close-up laptop webcam (frame ends between the chin and the
+waist, hands only visible when raised), which is how most people use the app:
+
+| Source | Correct | Wrong | Missed | Previous model (correct) |
+|---|---|---|---|---|
+| INCLUDE pose release | 89.0% | 2.7% | 8.3% | 65.0% |
+| INCLUDE original videos | 87.6% | 3.2% | 9.2% | 71.3% |
+| Team words | 90.6% | 1.7% | 7.7% | 72.4% |
+
+The second row of the first table is the closest proxy for the webcam: the same landmark pipeline the browser runs.
 The first model, trained on the pose release only, scored 41.8% correct / 7.0% wrong on that row.
 
 Clip-level accuracy (complete pre-cut clips):
@@ -90,7 +99,7 @@ UI: Signing... / "Looks like X" <---- (3-cut smoothing, threshold,           upp
 3. **Segmentation:** a sign starts when hands are raised or moving, and ends after 0.4 s of rest.
    Tuned on validation streams (`training/configs/streaming.json`).
 4. **Decision:** the whole sign is classified once. A "no sign yet" class covers rest, partial
-   signs and fidgets; a word is added at 80% confidence or more; otherwise the top 3 are offered.
+   signs and fidgets; a word is added at 60% confidence or more (chosen on validation streams); otherwise the top 3 are offered.
 
 ## Quick start (Windows)
 

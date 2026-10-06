@@ -29,7 +29,7 @@ def _optional_float(name: str) -> float | None:
 @dataclass
 class Settings:
     model_dir: Path = field(
-        default_factory=lambda: Path(os.getenv("MUDRA_MODEL_DIR", BACKEND_DIR / "models" / "isl_mudra_combined_v3_bilstm"))
+        default_factory=lambda: Path(os.getenv("MUDRA_MODEL_DIR", BACKEND_DIR / "models" / "isl_mudra_combined_v4_bilstm"))
     )
     device: str = field(default_factory=lambda: os.getenv("MUDRA_DEVICE", "cpu"))
     cors_origins: list[str] = field(default_factory=_origins)
@@ -37,6 +37,10 @@ class Settings:
     uncertain_threshold: float | None = field(default_factory=lambda: _optional_float("MUDRA_UNCERTAIN_THRESHOLD"))
     # Below this share of frames with a visible hand, the API reports "no_hands" instead of guessing.
     min_hand_rate: float = field(default_factory=lambda: float(os.getenv("MUDRA_MIN_HAND_RATE", "0.3")))
+    # One line per finished live sign (decision summary only), for diagnosing live use
+    events_log: Path = field(
+        default_factory=lambda: Path(os.getenv("MUDRA_EVENTS_LOG", BACKEND_DIR.parents[1] / "experiments" / "logs" / "stream_events.jsonl"))
+    )
     # Signs recorded in the app (landmarks only): data/processed/landmarks/app + data/metadata/manifest_app.csv
     recordings_dir: Path = field(
         default_factory=lambda: Path(os.getenv("MUDRA_RECORDINGS_DIR", BACKEND_DIR.parents[1] / "data"))

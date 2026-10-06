@@ -26,6 +26,7 @@ import numpy as np
 
 from mudra_ml.config import project_path
 from mudra_ml.data.manifest import read_manifest
+from mudra_ml.datasets.camera import CloseupParams, closeup_view
 from mudra_ml.datasets.distractors import synth_fidget
 from mudra_ml.preprocessing.sequence import LandmarkSequence, load_sequence
 from mudra_ml.streaming import Frame, ModelBundle, SegmenterConfig, StreamingRecognizer
@@ -33,7 +34,8 @@ from mudra_ml.streaming import Frame, ModelBundle, SegmenterConfig, StreamingRec
 CFG_PATH = project_path("training/configs/streaming.json")
 
 
-def build_streams(rows, classes, fps, signs_per_stream=8, seed=0, fidgets=True):
+def build_streams(rows, classes, fps, signs_per_stream=8, seed=0, fidgets=True, closeup=False):
+    """closeup: every stream is seen through one simulated close-up webcam (datasets/camera.py)."""
     rng = np.random.default_rng(seed)
     rows = [r for r in rows if r.label in classes]
     order = rng.permutation(len(rows))
@@ -41,9 +43,14 @@ def build_streams(rows, classes, fps, signs_per_stream=8, seed=0, fidgets=True):
     for k in range(0, len(order), signs_per_stream):
         hands, present, pose, pose_p, truth, idle = [], [], [], [], [], []
         prev, prev_seq = None, None
+        cam = CloseupParams.sample(rng) if closeup else None
         for j, idx in enumerate(order[k : k + signs_per_stream]):
             r = rows[idx]
             s = load_sequence(Path(r.landmarks_path))
+            if cam is not None:
+                s = closeup_view(s, cam)
+                if s is None:
+                    continue
             if prev is not None:  # smooth transition: interpolate last frame of previous clip -> first frame of this one
                 n = int(rng.uniform(0.3, 1.0) * fps)
                 if j % 3 == 0:  # idle stretch: rest, often with a fidget (face touch / hair), then transition
@@ -149,13 +156,14 @@ def objective(m):
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--model", default="app/backend/models/isl_mudra_combined_v3_bilstm")
+    ap.add_argument("--model", default="app/backend/models/isl_mudra_combined_v4_bilstm")
     ap.add_argument("--split", required=True)
     ap.add_argument("--tune", action="store_true")
     ap.add_argument("--tune-threshold-only", action="store_true", help="keep saved segmenter settings, tune only the threshold")
     ap.add_argument("--default-fps", type=float, default=25.0)
     ap.add_argument("--config-out", default=None, help="where tuned settings are saved (default training/configs/streaming.json)")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--closeup", action="store_true", help="view every stream through a simulated close-up webcam")
     args = ap.parse_args()
 
     bundle = ModelBundle(project_path(args.model))
@@ -166,7 +174,7 @@ def main() -> None:
     data = {}
     for src, rs in by_src.items():
         fps = float(load_sequence(Path(rs[0].landmarks_path)).meta.get("fps") or 0) or args.default_fps
-        data[src] = (fps, build_streams(rs, set(bundle.classes), fps))
+        data[src] = (fps, build_streams(rs, set(bundle.classes), fps, closeup=args.closeup))
 
     cfg_path = project_path(args.config_out) if args.config_out else CFG_PATH
     cfg = SegmenterConfig.load(cfg_path if cfg_path.exists() else CFG_PATH)
